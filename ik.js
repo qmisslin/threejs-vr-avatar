@@ -5,40 +5,57 @@ const EPSILON = 1e-6;
 
 export class IK {
     constructor({ bones, poleBone = null }) {
-        if (!Array.isArray(bones) || bones.length !== 3) {
-            throw new Error('Simple IK requires exactly three joints.');
+        if (
+            !Array.isArray(bones) ||
+            bones.length !== 3
+        ) {
+            throw new Error(
+                'Simple IK requires exactly three joints.'
+            );
         }
 
         for (let i = 1; i < bones.length; i++) {
-            let parent = bones[i].parent;
             let found = false;
 
-            while (parent) {
+            for (
+                let parent = bones[i].parent;
+                parent;
+                parent = parent.parent
+            ) {
                 if (parent === bones[i - 1]) {
                     found = true;
                     break;
                 }
-
-                parent = parent.parent;
             }
 
             if (!found) {
-                throw new Error('IK joints must form an ordered hierarchy.');
+                throw new Error(
+                    'IK joints must form an ordered hierarchy.'
+                );
             }
         }
 
+        [
+            this.root,
+            this.middle,
+            this.end
+        ] = bones;
+
         this.bones = bones;
-
-        this.root = bones[0];
-        this.middle = bones[1];
-        this.end = bones[2];
-
         this.poleBone = poleBone;
         this.poleTarget = null;
 
-        this.savedPositions = bones.map(() => new THREE.Vector3());
-        this.savedRotations = bones.map(() => new THREE.Quaternion());
-        this.savedScales = bones.map(() => new THREE.Vector3());
+        this.savedPositions = bones.map(
+            () => new THREE.Vector3()
+        );
+
+        this.savedRotations = bones.map(
+            () => new THREE.Quaternion()
+        );
+
+        this.savedScales = bones.map(
+            () => new THREE.Vector3()
+        );
 
         this.hasSavedPose = false;
 
@@ -46,10 +63,15 @@ export class IK {
         this.animatedMiddle = new THREE.Vector3();
 
         this.target = new THREE.Vector3();
-        this.endWorldQuaternion = new THREE.Quaternion();
+        this.endWorldQuaternion =
+            new THREE.Quaternion();
 
         this.toeDirection = new THREE.Vector3();
-        this.cachedPole = new THREE.Vector3(0, 0, 1);
+        this.cachedPole = new THREE.Vector3(
+            0,
+            0,
+            1
+        );
 
         this.rootWorld = new THREE.Vector3();
         this.middleWorld = new THREE.Vector3();
@@ -61,7 +83,6 @@ export class IK {
 
         this.desiredMiddle = new THREE.Vector3();
         this.desiredEnd = new THREE.Vector3();
-
         this.worldPole = new THREE.Vector3();
 
         this.fromDirection = new THREE.Vector3();
@@ -75,13 +96,13 @@ export class IK {
         this.residual = new THREE.Vector3();
         this.zero = new THREE.Vector3();
 
-        this.originalPositions = bones.map(() => new THREE.Vector3());
-        this.desiredJointWorld = new THREE.Vector3();
-    }
+        this.originalPositions = bones.map(
+            () => new THREE.Vector3()
+        );
 
-    // --------------------------------------------------
-    // Pole target
-    // --------------------------------------------------
+        this.desiredJointWorld =
+            new THREE.Vector3();
+    }
 
     setPoleTarget(target) {
         this.poleTarget = target;
@@ -96,42 +117,80 @@ export class IK {
         if (!this.hasSavedPose) return;
 
         for (let i = 0; i < this.bones.length; i++) {
-            this.bones[i].position.copy(this.savedPositions[i]);
-            this.bones[i].quaternion.copy(this.savedRotations[i]);
-            this.bones[i].scale.copy(this.savedScales[i]);
+            this.bones[i].position.copy(
+                this.savedPositions[i]
+            );
+
+            this.bones[i].quaternion.copy(
+                this.savedRotations[i]
+            );
+
+            this.bones[i].scale.copy(
+                this.savedScales[i]
+            );
         }
     }
 
-    captureAnimatedPose(worldDelta = this.zero) {
-        this.root.getWorldPosition(this.animatedRoot);
-        this.middle.getWorldPosition(this.animatedMiddle);
-        this.end.getWorldPosition(this.target);
+    captureAnimatedPose(
+        worldDelta = this.zero
+    ) {
+        this.root.getWorldPosition(
+            this.animatedRoot
+        );
+
+        this.middle.getWorldPosition(
+            this.animatedMiddle
+        );
+
+        this.end.getWorldPosition(
+            this.target
+        );
 
         this.animatedRoot.sub(worldDelta);
         this.animatedMiddle.sub(worldDelta);
         this.target.sub(worldDelta);
 
-        this.end.getWorldQuaternion(this.endWorldQuaternion);
+        this.end.getWorldQuaternion(
+            this.endWorldQuaternion
+        );
 
         if (this.poleBone) {
-            this.poleBone.getWorldPosition(this.toeDirection);
-            this.end.getWorldPosition(this.endWorld);
-            this.toeDirection.sub(this.endWorld);
+            this.poleBone.getWorldPosition(
+                this.toeDirection
+            );
+
+            this.end.getWorldPosition(
+                this.endWorld
+            );
+
+            this.toeDirection.sub(
+                this.endWorld
+            );
         } else {
-            this.toeDirection.copy(this.cachedPole);
+            this.toeDirection.copy(
+                this.cachedPole
+            );
         }
 
         for (let i = 0; i < this.bones.length; i++) {
-            this.savedPositions[i].copy(this.bones[i].position);
-            this.savedRotations[i].copy(this.bones[i].quaternion);
-            this.savedScales[i].copy(this.bones[i].scale);
+            this.savedPositions[i].copy(
+                this.bones[i].position
+            );
+
+            this.savedRotations[i].copy(
+                this.bones[i].quaternion
+            );
+
+            this.savedScales[i].copy(
+                this.bones[i].scale
+            );
         }
 
         this.hasSavedPose = true;
     }
 
     // --------------------------------------------------
-    // Solve
+    // Solver
     // --------------------------------------------------
 
     solve() {
@@ -139,7 +198,11 @@ export class IK {
         this.restoreEndOrientation();
     }
 
-    solveToTarget(position, quaternion, { stretch = false } = {}) {
+    solveToTarget(
+        position,
+        quaternion,
+        { stretch = false } = {}
+    ) {
         if (!this.hasSavedPose) {
             throw new Error(
                 'Call captureAnimatedPose() before solveToTarget().'
@@ -164,43 +227,50 @@ export class IK {
 
     stretchToReach() {
         for (let i = 0; i < 3; i++) {
-            this.bones[i].getWorldPosition(this.originalPositions[i]);
-        }
-
-        const upperLength = this.originalPositions[0].distanceTo(
-            this.originalPositions[1]
-        );
-
-        const lowerLength = this.originalPositions[1].distanceTo(
-            this.originalPositions[2]
-        );
-
-        const totalLength = upperLength + lowerLength;
-
-        if (totalLength < EPSILON) return;
-
-        const distance = this.originalPositions[0].distanceTo(this.target);
-        const minimumReach = Math.abs(upperLength - lowerLength);
-        const margin = Math.max(totalLength * 0.001, EPSILON * 10);
-
-        let factor = 1;
-
-        if (distance >= totalLength - margin) {
-            factor = (distance + margin) / totalLength;
-        } else if (
-            minimumReach > EPSILON &&
-            distance < minimumReach + margin
-        ) {
-            factor = Math.max(
-                1e-4,
-                (distance - margin) / minimumReach
+            this.bones[i].getWorldPosition(
+                this.originalPositions[i]
             );
         }
 
-        if (Math.abs(factor - 1) < EPSILON) return;
+        const upper = this.originalPositions[0]
+            .distanceTo(this.originalPositions[1]);
 
-        // Modify joint translations without changing bone scales.
+        const lower = this.originalPositions[1]
+            .distanceTo(this.originalPositions[2]);
 
+        const total = upper + lower;
+
+        if (total < EPSILON) return;
+
+        const distance = this.originalPositions[0]
+            .distanceTo(this.target);
+
+        const minimum = Math.abs(upper - lower);
+
+        const margin = Math.max(
+            total * 0.001,
+            EPSILON * 10
+        );
+
+        let factor = 1;
+
+        if (distance >= total - margin) {
+            factor = (distance + margin) / total;
+        } else if (
+            minimum > EPSILON &&
+            distance < minimum + margin
+        ) {
+            factor = Math.max(
+                1e-4,
+                (distance - margin) / minimum
+            );
+        }
+
+        if (Math.abs(factor - 1) < EPSILON) {
+            return;
+        }
+
+        // Modify joint translations, never bone scales.
         for (let i = 1; i < 3; i++) {
             const bone = this.bones[i];
 
@@ -212,25 +282,34 @@ export class IK {
                 .multiplyScalar(factor)
                 .add(this.originalPositions[0]);
 
-            bone.parent.updateWorldMatrix(true, false);
-
-            bone.position.copy(
-                bone.parent.worldToLocal(this.desiredJointWorld)
+            bone.parent.updateWorldMatrix(
+                true,
+                false
             );
 
-            bone.updateWorldMatrix(true, true);
+            bone.position.copy(
+                bone.parent.worldToLocal(
+                    this.desiredJointWorld
+                )
+            );
+
+            bone.updateWorldMatrix(
+                true,
+                true
+            );
         }
     }
 
     // --------------------------------------------------
-    // Pole computation
+    // Pole direction
     // --------------------------------------------------
 
     computePole() {
         if (this.poleTarget) {
-            // Absolute world-space pole.
-
-            this.poleTarget.getWorldPosition(this.worldPole);
+            // Absolute pole position in world coordinates.
+            this.poleTarget.getWorldPosition(
+                this.worldPole
+            );
 
             this.pole.subVectors(
                 this.worldPole,
@@ -251,24 +330,25 @@ export class IK {
                 );
             }
         } else {
-            // Original animation-derived pole.
-
+            // Fallback based on the animated pose.
             this.baseAxis.subVectors(
                 this.target,
                 this.animatedRoot
             );
 
-            const baseLengthSq = this.baseAxis.lengthSq();
+            const lengthSq =
+                this.baseAxis.lengthSq();
 
             this.pole.subVectors(
                 this.animatedMiddle,
                 this.animatedRoot
             );
 
-            if (baseLengthSq > EPSILON) {
+            if (lengthSq > EPSILON) {
                 this.pole.addScaledVector(
                     this.baseAxis,
-                    -this.pole.dot(this.baseAxis) / baseLengthSq
+                    -this.pole.dot(this.baseAxis) /
+                    lengthSq
                 );
             }
 
@@ -323,21 +403,27 @@ export class IK {
     // --------------------------------------------------
 
     solveTwoBone() {
-        this.root.getWorldPosition(this.rootWorld);
-        this.middle.getWorldPosition(this.middleWorld);
-        this.end.getWorldPosition(this.endWorld);
+        this.root.getWorldPosition(
+            this.rootWorld
+        );
 
-        const upperLength = this.rootWorld.distanceTo(
+        this.middle.getWorldPosition(
             this.middleWorld
         );
 
-        const lowerLength = this.middleWorld.distanceTo(
+        this.end.getWorldPosition(
             this.endWorld
         );
 
+        const upper = this.rootWorld
+            .distanceTo(this.middleWorld);
+
+        const lower = this.middleWorld
+            .distanceTo(this.endWorld);
+
         if (
-            upperLength < EPSILON ||
-            lowerLength < EPSILON
+            upper < EPSILON ||
+            lower < EPSILON
         ) {
             return;
         }
@@ -347,47 +433,52 @@ export class IK {
             this.rootWorld
         );
 
-        const actualDistance = this.axis.length();
+        const actualDistance =
+            this.axis.length();
 
         if (actualDistance < EPSILON) {
             this.axis.set(0, -1, 0);
         } else {
-            this.axis.divideScalar(actualDistance);
+            this.axis.divideScalar(
+                actualDistance
+            );
         }
 
-        const minimumReach = Math.abs(
-            upperLength - lowerLength
-        );
+        const minReach =
+            Math.abs(upper - lower);
 
-        const maximumReach = upperLength + lowerLength;
+        const maxReach =
+            upper + lower;
 
         const distance = THREE.MathUtils.clamp(
             actualDistance,
-            minimumReach + EPSILON,
+            minReach + EPSILON,
             Math.max(
-                minimumReach + EPSILON,
-                maximumReach - EPSILON
+                minReach + EPSILON,
+                maxReach - EPSILON
             )
         );
 
         this.desiredEnd
             .copy(this.rootWorld)
-            .addScaledVector(this.axis, distance);
+            .addScaledVector(
+                this.axis,
+                distance
+            );
 
         this.computePole();
 
         // Law of cosines.
-
         const x = (
-            upperLength * upperLength -
-            lowerLength * lowerLength +
+            upper * upper -
+            lower * lower +
             distance * distance
         ) / (2 * distance);
 
         const h = Math.sqrt(
             Math.max(
                 0,
-                upperLength * upperLength - x * x
+                upper * upper - x * x
             )
         );
 
@@ -396,8 +487,7 @@ export class IK {
             .addScaledVector(this.axis, x)
             .addScaledVector(this.pole, h);
 
-        // Rotate the first segment.
-
+        // First segment.
         this.rotateBoneToTarget(
             this.root,
             this.rootWorld,
@@ -405,11 +495,15 @@ export class IK {
             this.desiredMiddle
         );
 
-        // Rotate the second segment.
+        this.middle.getWorldPosition(
+            this.middleWorld
+        );
 
-        this.middle.getWorldPosition(this.middleWorld);
-        this.end.getWorldPosition(this.endWorld);
+        this.end.getWorldPosition(
+            this.endWorld
+        );
 
+        // Second segment.
         this.rotateBoneToTarget(
             this.middle,
             this.middleWorld,
@@ -419,7 +513,7 @@ export class IK {
     }
 
     // --------------------------------------------------
-    // Bone rotation
+    // World-space joint rotation
     // --------------------------------------------------
 
     rotateBoneToTarget(
@@ -453,8 +547,13 @@ export class IK {
             this.toDirection
         );
 
-        bone.getWorldQuaternion(this.qWorld);
-        bone.parent.getWorldQuaternion(this.qParent);
+        bone.getWorldQuaternion(
+            this.qWorld
+        );
+
+        bone.parent.getWorldQuaternion(
+            this.qParent
+        );
 
         bone.quaternion
             .copy(this.qParent.invert())
@@ -470,7 +569,9 @@ export class IK {
     // --------------------------------------------------
 
     restoreEndOrientation() {
-        this.end.parent.getWorldQuaternion(this.qParent);
+        this.end.parent.getWorldQuaternion(
+            this.qParent
+        );
 
         this.end.quaternion
             .copy(this.qParent.invert())
@@ -481,27 +582,38 @@ export class IK {
     }
 
     // --------------------------------------------------
-    // Exact end-effector positioning
+    // Absolute end-effector positioning
     // --------------------------------------------------
 
     pinEndPosition() {
-        this.end.getWorldPosition(this.endWorld);
+        this.end.getWorldPosition(
+            this.endWorld
+        );
 
         this.residual.subVectors(
             this.target,
             this.endWorld
         );
 
-        if (this.residual.lengthSq() < 1e-18) return;
+        if (this.residual.lengthSq() < 1e-18) {
+            return;
+        }
 
-        this.end.parent.updateWorldMatrix(true, false);
+        this.end.parent.updateWorldMatrix(
+            true,
+            false
+        );
 
         this.inverseMatrix
-            .setFromMatrix4(this.end.parent.matrixWorld)
+            .setFromMatrix4(
+                this.end.parent.matrixWorld
+            )
             .invert();
 
         this.end.position.add(
-            this.residual.applyMatrix3(this.inverseMatrix)
+            this.residual.applyMatrix3(
+                this.inverseMatrix
+            )
         );
 
         this.end.updateWorldMatrix(true, true);
