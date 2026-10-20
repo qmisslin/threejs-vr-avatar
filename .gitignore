@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+**/.DS_Store
+._*
+.AppleDouble/
+.LSOverride
+__MACOSX/
+
+# Visual Studio Code
+.vscode/
+
+# Project specifications
+specs.md
