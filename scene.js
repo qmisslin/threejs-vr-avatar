@@ -179,6 +179,25 @@ export class Scene {
       0, 0, 0, 'YXZ'
     );
 
+    // The avatar faces +Z while WebXR viewers face -Z.
+    // Align on the first tracked frame and after XR recentering.
+    this.vrNeedsAlignment = true;
+    this.vrReferenceSpace = null;
+
+    this.vrReferenceSpaceReset = () => {
+      this.vrNeedsAlignment = true;
+    };
+
+    this.vrHandGrace = {
+      left: 0,
+      right: 0
+    };
+
+    this.vrHasTrackedHands = {
+      left: false,
+      right: false
+    };
+
     this.moveForward = new THREE.Vector3();
     this.moveRight = new THREE.Vector3();
 
@@ -590,6 +609,26 @@ export class Scene {
   // VR session
   // --------------------------------------------------
 
+  watchVRReferenceSpace(referenceSpace) {
+    if (this.vrReferenceSpace === referenceSpace) return;
+
+    this.vrReferenceSpace?.removeEventListener(
+      'reset',
+      this.vrReferenceSpaceReset
+    );
+
+    this.vrReferenceSpace = referenceSpace;
+
+    if (referenceSpace) {
+      referenceSpace.addEventListener(
+        'reset',
+        this.vrReferenceSpaceReset
+      );
+    }
+
+    this.vrNeedsAlignment = true;
+  }
+
   async enterVR() {
     if (
       !navigator.xr ||
@@ -611,6 +650,7 @@ export class Scene {
           requiredFeatures: ['local-floor']
         }
       );
+
     } catch (error) {
       this.setHint(
         `Unable to start VR: ${error.message}`
@@ -638,9 +678,25 @@ export class Scene {
       this.orbit.enabled = false;
       this.setGameplayAppearance();
 
-      // VR uses its own tracking rig, with no Desktop offset.
+      // Wait for a valid viewer pose before aligning the rig.
+
+      this.vrNeedsAlignment = true;
+      this.watchVRReferenceSpace(null);
+
+      this.vrHandGrace.left = 0;
+      this.vrHandGrace.right = 0;
+
+      this.vrHasTrackedHands.left = false;
+      this.vrHasTrackedHands.right = false;
+
+      this.avatar.setArmIKEnabled('left', false);
+      this.avatar.setArmIKEnabled('right', false);
+
+      // XR supplies headset transforms. Remove Desktop offset.
+
       this.gameCamera.rotation.set(0, 0, 0);
       this.gameCamera.position.set(0, 0, 0);
+
       this.xrRig.add(this.gameCamera);
 
       this.xrRig.position.set(
@@ -649,38 +705,76 @@ export class Scene {
         this.player.position.z
       );
 
+      // Temporary heading; first tracked frame refines this.
+
       this.xrRig.rotation.y =
-        this.player.rotation.y;
+        this.player.rotation.y - Math.PI;
 
       this.xrRig.updateWorldMatrix(true, true);
 
-      // Restore the shorter clipping distance for immersive VR.
       this.gameCamera.near = this.vrCameraNear;
       this.gameCamera.updateProjectionMatrix();
 
-      await this.renderer.xr.setSession(session);
-
-      this.avatar.setPlaying(true);
-      this.updateLocomotionAnimation(false);
-
-      this.mode = 'vr';
-      this.activateModeUI();
-
-      this.setHint(
-        'VR: left stick move · right stick turn · headset/controller tracking'
-      );
+      // Register events before the session is handed to Three.js.
 
       session.addEventListener(
         'end',
         () => {
+          this.watchVRReferenceSpace(null);
+
+          // If startup failed, the catch block restores Flat mode.
+
+          if (this.mode !== 'vr') return;
+
           const next =
-            this.pendingExitMode ||
-            this.previousFlatMode;
+            this.pendingExitMode || this.previousFlatMode;
 
           this.pendingExitMode = null;
           this.activateFlatMode(next);
         },
         { once: true }
+      );
+
+      // Input sources may arrive after the initial XR frame.
+      // The update loop will automatically use them when ready.
+
+      session.addEventListener(
+        'inputsourceschange',
+        () => {
+          console.info(
+            '[VR] Input sources:',
+            Array.from(
+              session.inputSources,
+              source =>
+                source.handedness || source.targetRayMode
+            )
+          );
+        }
+      );
+
+      session.addEventListener(
+        'visibilitychange',
+        () => {
+          if (session.visibilityState === 'visible') {
+            this.vrNeedsAlignment = true;
+          }
+        }
+      );
+
+      // Switch the render loop to the VR camera BEFORE setSession
+      // starts presenting frames. This avoids an initial Debug
+      // frame being submitted to the immersive XR session.
+
+      this.mode = 'vr';
+
+      this.avatar.setPlaying(true);
+      this.updateLocomotionAnimation(false);
+      this.activateModeUI();
+
+      await this.renderer.xr.setSession(session);
+
+      this.setHint(
+        'VR: left stick move · right stick turn · headset/controller tracking'
       );
 
     } catch (error) {
@@ -696,7 +790,9 @@ export class Scene {
         // Session may already be closed.
       }
 
-      this.activateFlatMode(flatMode);
+      if (this.mode === 'vr') {
+        this.activateFlatMode(flatMode);
+      }
     }
   }
 
@@ -945,7 +1041,7 @@ export class Scene {
   // VR locomotion
   // --------------------------------------------------
 
-  updateVRLocomotion(delta, frame) {
+  updateVRLocomotion(delta, frame, headYaw) {
     let left = null;
     let right = null;
 
@@ -962,7 +1058,7 @@ export class Scene {
     const moveStick = this.readStick(left);
     const turnStick = this.readStick(right);
 
-    // Rotate around tracked headset position.
+    // Turn the virtual space around the tracked headset.
 
     if (turnStick.x !== 0) {
       this.xrRig.updateWorldMatrix(true, false);
@@ -985,25 +1081,26 @@ export class Scene {
         this.beforeTurn.z - this.afterTurn.z;
     }
 
+    // The tracked headset looks along -Z,
+    // the Mixamo body along +Z.
+    // Incorporate head yaw so recentering never reverses the avatar.
+
+    const viewYaw =
+      this.xrRig.rotation.y + headYaw;
+
     this.player.setCapsuleYaw(
-      this.xrRig.rotation.y * DEG
+      (viewYaw + Math.PI) * DEG
     );
 
-    // Move relative to the XR rig orientation.
+    // Locomotion is headset-relative, not rig-axis-relative.
 
     this.moveForward
       .set(0, 0, -1)
-      .applyAxisAngle(
-        Y_AXIS,
-        this.xrRig.rotation.y
-      );
+      .applyAxisAngle(Y_AXIS, viewYaw);
 
     this.moveRight
       .set(1, 0, 0)
-      .applyAxisAngle(
-        Y_AXIS,
-        this.xrRig.rotation.y
-      );
+      .applyAxisAngle(Y_AXIS, viewYaw);
 
     const speed = this.vrWalkSpeed * delta;
 
@@ -1018,8 +1115,6 @@ export class Scene {
     );
 
     this.xrRig.updateWorldMatrix(true, false);
-
-    // VR walking for forward or backward stick movement.
 
     return moveStick.y !== 0;
   }
@@ -1041,6 +1136,8 @@ export class Scene {
 
     if (!referenceSpace) return;
 
+    this.watchVRReferenceSpace(referenceSpace);
+
     const viewerPose =
       frame.getViewerPose(referenceSpace);
 
@@ -1054,8 +1151,53 @@ export class Scene {
       head.position.z
     );
 
-    const walking =
-      this.updateVRLocomotion(delta, frame);
+    this.trackedQuaternion.set(
+      head.orientation.x,
+      head.orientation.y,
+      head.orientation.z,
+      head.orientation.w
+    );
+
+    this.headEuler.setFromQuaternion(
+      this.trackedQuaternion,
+      'YXZ'
+    );
+
+    if (this.vrNeedsAlignment) {
+      // Preserve current avatar heading across startup/recenter.
+      // The body +Z must align with the headset's -Z heading.
+
+      this.xrRig.rotation.y =
+        this.player.rotation.y -
+        this.headEuler.y -
+        Math.PI;
+
+      // Preserve the player's horizontal world position when
+      // reference-space coordinates are first available/reset.
+
+      this.afterTurn
+        .copy(this.headLocal)
+        .applyAxisAngle(
+          Y_AXIS,
+          this.xrRig.rotation.y
+        );
+
+      this.xrRig.position.x =
+        this.player.position.x - this.afterTurn.x;
+
+      this.xrRig.position.z =
+        this.player.position.z - this.afterTurn.z;
+
+      this.xrRig.updateWorldMatrix(true, false);
+
+      this.vrNeedsAlignment = false;
+    }
+
+    const walking = this.updateVRLocomotion(
+      delta,
+      frame,
+      this.headEuler.y
+    );
 
     this.updateLocomotionAnimation(walking);
 
@@ -1071,21 +1213,12 @@ export class Scene {
       { clampY: false }
     );
 
-    this.trackedQuaternion.set(
-      head.orientation.x,
-      head.orientation.y,
-      head.orientation.z,
-      head.orientation.w
-    );
-
-    this.headEuler.setFromQuaternion(
-      this.trackedQuaternion,
-      'YXZ'
-    );
+    // Body already follows the headset yaw.
+    // Do not apply it a second time to the avatar head bone.
 
     this.player.setEyesRotation({
       x: this.headEuler.x * DEG,
-      y: this.headEuler.y * DEG,
+      y: 0,
       z: this.headEuler.z * DEG
     });
 
@@ -1102,25 +1235,37 @@ export class Scene {
       const side = source.handedness;
 
       if (
-        (side !== 'left' && side !== 'right') ||
-        !source.gripSpace
+        side !== 'left' &&
+        side !== 'right'
       ) {
         continue;
       }
 
-      const gripPose = frame.getPose(
-        source.gripSpace,
-        referenceSpace
-      );
+      // Grip is preferable for hands.
+      // Target ray is a fallback for incomplete tracking.
 
-      if (!gripPose) continue;
+      let pose = source.gripSpace
+        ? frame.getPose(
+          source.gripSpace,
+          referenceSpace
+        )
+        : null;
 
-      const pose = gripPose.transform;
+      if (!pose && source.targetRaySpace) {
+        pose = frame.getPose(
+          source.targetRaySpace,
+          referenceSpace
+        );
+      }
+
+      if (!pose) continue;
+
+      const transform = pose.transform;
 
       this.trackedPosition.set(
-        pose.position.x,
-        pose.position.y,
-        pose.position.z
+        transform.position.x,
+        transform.position.y,
+        transform.position.z
       );
 
       this.xrRig.localToWorld(
@@ -1129,10 +1274,10 @@ export class Scene {
 
       this.trackedQuaternion
         .set(
-          pose.orientation.x,
-          pose.orientation.y,
-          pose.orientation.z,
-          pose.orientation.w
+          transform.orientation.x,
+          transform.orientation.y,
+          transform.orientation.z,
+          transform.orientation.w
         )
         .premultiply(this.rigQuaternion);
 
@@ -1143,13 +1288,38 @@ export class Scene {
       );
 
       tracked[side] = true;
+
+      if (!this.vrHasTrackedHands[side]) {
+        console.info(
+          `[VR] ${side} hand tracking ready`
+        );
+
+        this.vrHasTrackedHands[side] = true;
+      }
     }
 
+    // Short dropout tolerance.
+    // Hands recover automatically when tracking resumes.
+
     for (const side of ['left', 'right']) {
-      this.avatar.setArmIKEnabled(
-        side,
-        tracked[side]
-      );
+      this.vrHandGrace[side] = tracked[side]
+        ? 0.25
+        : Math.max(
+          0,
+          this.vrHandGrace[side] - delta
+        );
+
+      const enabled =
+        this.vrHandGrace[side] > 0;
+
+      if (
+        this.avatar.armIKEnabled[side] !== enabled
+      ) {
+        this.avatar.setArmIKEnabled(
+          side,
+          enabled
+        );
+      }
     }
   }
 
@@ -1158,25 +1328,40 @@ export class Scene {
   // --------------------------------------------------
 
   createSection(title) {
-    const section = document.createElement('section');
-    const heading = document.createElement('h2');
+    const section =
+      document.createElement('section');
+
+    const heading =
+      document.createElement('h2');
 
     heading.textContent = title;
+
     section.appendChild(heading);
     this.controlsContainer.appendChild(section);
 
     return section;
   }
 
-  createCheckbox(section, label, checked, onChange) {
-    const wrapper = document.createElement('label');
+  createCheckbox(
+    section,
+    label,
+    checked,
+    onChange
+  ) {
+    const wrapper =
+      document.createElement('label');
+
     wrapper.className = 'checkbox-field';
 
-    const input = document.createElement('input');
+    const input =
+      document.createElement('input');
+
     input.type = 'checkbox';
     input.checked = checked;
 
-    const span = document.createElement('span');
+    const span =
+      document.createElement('span');
+
     span.textContent = label;
 
     input.addEventListener(
@@ -1201,14 +1386,20 @@ export class Scene {
     axisSettings = {},
     onChange
   }) {
-    const group = document.createElement('div');
+    const group =
+      document.createElement('div');
+
     group.className = 'field-group';
 
-    const title = document.createElement('span');
+    const title =
+      document.createElement('span');
+
     title.className = 'field-title';
     title.textContent = label;
 
-    const row = document.createElement('div');
+    const row =
+      document.createElement('div');
+
     row.className = axes.length === 1
       ? 'vector-inputs single'
       : 'vector-inputs';
@@ -1216,20 +1407,32 @@ export class Scene {
     const inputs = {};
 
     for (const axis of axes) {
-      const settings = axisSettings[axis] || {};
+      const settings =
+        axisSettings[axis] || {};
 
-      const axisStep = settings.step ?? step;
-      const axisMin = settings.min ?? min;
-      const axisMax = settings.max ?? max;
+      const axisStep =
+        settings.step ?? step;
 
-      const field = document.createElement('label');
+      const axisMin =
+        settings.min ?? min;
+
+      const axisMax =
+        settings.max ?? max;
+
+      const field =
+        document.createElement('label');
+
       field.className = 'axis-field';
 
-      const caption = document.createElement('span');
+      const caption =
+        document.createElement('span');
+
       caption.className = 'axis-label';
       caption.textContent = settings.label ?? axis;
 
-      const input = document.createElement('input');
+      const input =
+        document.createElement('input');
+
       input.type = 'number';
       input.step = String(axisStep);
 
@@ -1259,7 +1462,8 @@ export class Scene {
         values[axis] = actual;
 
         if (normalizeInput) {
-          input.value = this.formatNumber(actual);
+          input.value =
+            this.formatNumber(actual);
         }
       };
 
@@ -1280,6 +1484,7 @@ export class Scene {
           input.value = this.formatNumber(
             values[axis]
           );
+
         } else {
           apply(input.valueAsNumber, true);
         }
@@ -1340,25 +1545,37 @@ export class Scene {
   }
 
   formatNumber(value) {
-    return String(Number(value.toFixed(4)));
+    return String(
+      Number(value.toFixed(4))
+    );
   }
 
   createAnimationControls(section, state) {
-    const group = document.createElement('div');
+    const group =
+      document.createElement('div');
+
     group.className = 'field-group';
 
-    const title = document.createElement('span');
+    const title =
+      document.createElement('span');
+
     title.className = 'field-title';
     title.textContent = 'Animation';
 
-    const row = document.createElement('div');
+    const row =
+      document.createElement('div');
+
     row.className = 'animation-row';
 
-    const select = document.createElement('select');
+    const select =
+      document.createElement('select');
+
     select.className = 'animation-select';
 
     for (const name of state.available) {
-      const option = document.createElement('option');
+      const option =
+        document.createElement('option');
+
       option.value = name;
 
       option.textContent =
@@ -1369,26 +1586,38 @@ export class Scene {
 
     select.value = state.current;
 
-    select.addEventListener('change', () => {
-      this.avatar.setAnimation(select.value);
-    });
+    select.addEventListener(
+      'change',
+      () => {
+        this.avatar.setAnimation(
+          select.value
+        );
+      }
+    );
 
-    const button = document.createElement('button');
+    const button =
+      document.createElement('button');
+
     button.className = 'animation-button';
     button.type = 'button';
 
     const refresh = () => {
       button.textContent =
-        this.avatar.isPlaying() ? 'Pause' : 'Play';
+        this.avatar.isPlaying()
+          ? 'Pause'
+          : 'Play';
     };
 
-    button.addEventListener('click', () => {
-      this.avatar.setPlaying(
-        !this.avatar.isPlaying()
-      );
+    button.addEventListener(
+      'click',
+      () => {
+        this.avatar.setPlaying(
+          !this.avatar.isPlaying()
+        );
 
-      refresh();
-    });
+        refresh();
+      }
+    );
 
     refresh();
 
@@ -1472,46 +1701,47 @@ export class Scene {
       'Player capsule'
     );
 
-    this.ui.capsuleParameters = this.createVectorInput({
-      section: capsule,
-      label: 'Capsule parameters',
+    this.ui.capsuleParameters =
+      this.createVectorInput({
+        section: capsule,
+        label: 'Capsule parameters',
 
-      values: state.capsule,
-      axes: ['height', 'radius', 'yaw'],
+        values: state.capsule,
+        axes: ['height', 'radius', 'yaw'],
 
-      axisSettings: {
-        height: {
-          step: 0.01,
-          min: 0.3
+        axisSettings: {
+          height: {
+            step: 0.01,
+            min: 0.3
+          },
+
+          radius: {
+            step: 0.01,
+            min: 0.05,
+            max: state.capsule.height / 2
+          },
+
+          yaw: {
+            step: 1
+          }
         },
 
-        radius: {
-          step: 0.01,
-          min: 0.05,
-          max: state.capsule.height / 2
-        },
+        onChange: (axis, value) => {
+          if (axis === 'height') {
+            const actual =
+              this.player.setCapsuleHeight(value);
 
-        yaw: {
-          step: 1
+            this.syncCapsuleDependentFields();
+            return actual;
+          }
+
+          if (axis === 'radius') {
+            return this.player.setCapsuleRadius(value);
+          }
+
+          return this.player.setCapsuleYaw(value);
         }
-      },
-
-      onChange: (axis, value) => {
-        if (axis === 'height') {
-          const actual =
-            this.player.setCapsuleHeight(value);
-
-          this.syncCapsuleDependentFields();
-          return actual;
-        }
-
-        if (axis === 'radius') {
-          return this.player.setCapsuleRadius(value);
-        }
-
-        return this.player.setCapsuleYaw(value);
-      }
-    });
+      });
 
     // Avatar eyes.
 
@@ -1519,17 +1749,18 @@ export class Scene {
       'Avatar eyes'
     );
 
-    this.ui.eyesPosition = this.createVectorInput({
-      section: eyes,
-      label: 'Position (world)',
+    this.ui.eyesPosition =
+      this.createVectorInput({
+        section: eyes,
+        label: 'Position (world)',
 
-      values: state.eyes.position,
+        values: state.eyes.position,
 
-      onChange: (axis, value) =>
-        this.player.setEyesPosition({
-          [axis]: value
-        })[axis]
-    });
+        onChange: (axis, value) =>
+          this.player.setEyesPosition({
+            [axis]: value
+          })[axis]
+      });
 
     this.ui.eyesPosition.inputs.y.min =
       String(state.eyes.yLimits.min);
@@ -1572,7 +1803,10 @@ export class Scene {
         state.ik[side],
 
         enabled =>
-          this.avatar.setArmIKEnabled(side, enabled)
+          this.avatar.setArmIKEnabled(
+            side,
+            enabled
+          )
       );
 
       this.createVectorInput({
@@ -1675,8 +1909,11 @@ export class Scene {
   }
 
   resize() {
-    const width = this.viewport.clientWidth;
-    const height = this.viewport.clientHeight;
+    const width =
+      this.viewport.clientWidth;
+
+    const height =
+      this.viewport.clientHeight;
 
     if (!width || !height) return;
 
@@ -1689,7 +1926,10 @@ export class Scene {
     }
 
     if (!this.renderer.xr.isPresenting) {
-      this.renderer.setSize(width, height);
+      this.renderer.setSize(
+        width,
+        height
+      );
     }
   }
 }
