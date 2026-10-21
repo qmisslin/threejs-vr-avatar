@@ -5,7 +5,8 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="icon" href="data:,">
-        <title>Player IK POC</title>
+        <title>Player - Debug, Desktop, VR</title>
+
         <style>
             * {
                 box-sizing: border-box;
@@ -36,6 +37,10 @@
                 overflow-y: auto;
                 background: #181818;
                 border-right: 1px solid #383838;
+            }
+
+            .is-hidden {
+                display: none !important;
             }
 
             #viewport {
@@ -145,7 +150,60 @@
             .animation-button:hover {
                 background: #363636;
             }
+
+            /* Game mode buttons */
+
+            #mode-bar {
+                position: fixed;
+                z-index: 100;
+                top: 14px;
+                left: 50%;
+                transform: translateX(-50%);
+                display: flex;
+                gap: 6px;
+                padding: 6px;
+                border-radius: 7px;
+                background: rgba(17, 17, 17, 0.85);
+                border: 1px solid #484848;
+            }
+
+            #mode-bar button {
+                min-width: 78px;
+                padding: 8px 14px;
+                border-radius: 5px;
+                background: #282828;
+                border: 1px solid #555;
+                color: #eee;
+                cursor: pointer;
+                font: inherit;
+            }
+
+            #mode-bar button.active {
+                background: #356ca8;
+                border-color: #78b6f3;
+            }
+
+            #mode-bar button:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+            }
+
+            #mode-hint {
+                position: fixed;
+                bottom: 16px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 100;
+                max-width: calc(100vw - 32px);
+                text-align: center;
+                padding: 7px 12px;
+                background: rgba(0, 0, 0, 0.65);
+                border-radius: 5px;
+                pointer-events: none;
+                color: #e3e3e3;
+            }
         </style>
+
         <script type="importmap">
   {
     "imports": {
@@ -161,10 +219,31 @@
             <aside id="sidebar">
                 <div id="controls"></div>
             </aside>
+
             <main id="viewport"></main>
         </div>
+
+        <nav id="mode-bar" aria-label="Game view mode">
+            <button id="mode-debug" type="button" class="active">
+                Debug
+            </button>
+
+            <button id="mode-desktop" type="button">
+                Desktop
+            </button>
+
+            <button id="mode-vr" type="button" disabled>
+                VR
+            </button>
+        </nav>
+
+        <div id="mode-hint">
+            Debug: orbit with the mouse, edit settings in the sidebar.
+        </div>
+
         <script type="module">
             import { Scene } from './scene.js';
+
             new Scene().start().catch(console.error);
         </script>
     </body>
