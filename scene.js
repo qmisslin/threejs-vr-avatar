@@ -222,8 +222,8 @@ export class Scene {
     // These can be adjusted independently if needed.
 
     this.vrHandRotationDegrees = {
-      left: [0, 0, 180],
-      right: [0, 0, 180]
+      left: [0, 180, 0],
+      right: [180, 0, 0]
     };
 
     this.vrHandRotationOffsets = {};
