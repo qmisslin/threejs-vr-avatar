@@ -5,9 +5,9 @@ import { IK } from './ik.js';
 const EPSILON = 1e-6;
 
 const DEFAULT_TRANSFORMS = {
-  leftHand: [0.32, 1, 0.26],
+  leftHand: [0.20, 1, 0.17],
   leftHandRotation: [90, -45, -10],
-  rightHand: [-0.32, 1, 0.26],
+  rightHand: [-0.20, 1, 0.17],
   rightHandRotation: [90, 45, -10],
   leftElbow: [0.8118, 0.9691, -0.3815],
   rightElbow: [-0.8118, 0.9691, -0.3815],
@@ -16,8 +16,6 @@ const DEFAULT_TRANSFORMS = {
 };
 
 export class Avatar {
-  #hipsPositionY = 0;
-
   constructor({
     height = 1.8,
     minCrouch = 0,
@@ -38,13 +36,16 @@ export class Avatar {
     this.skeletonHelper = null;
 
     this.headRestQuaternion = new THREE.Quaternion();
-    this.headOverride = true;
     this.headEuler = new THREE.Euler(0, 0, 0, 'XYZ');
     this.headOffsetQuaternion = new THREE.Quaternion();
+    this.headOverride = true;
 
     this.legIK = [];
     this.handIK = {};
-    this.armIKEnabled = { left: true, right: true };
+    this.armIKEnabled = {
+      left: true,
+      right: true
+    };
 
     this.handTargets = {};
     this.poleTargets = {};
@@ -58,7 +59,6 @@ export class Avatar {
     this.currentAction = null;
     this.playing = true;
 
-    this.initialHipsPosition = new THREE.Vector3();
     this.crouchDeltaY = 0;
     this.worldDelta = new THREE.Vector3();
     this.inverseMatrix = new THREE.Matrix3();
@@ -82,28 +82,30 @@ export class Avatar {
   }
 
   collectBones(object) {
-    const bones = new Map();
+    const result = new Map();
 
     object.traverse(child => {
       if (!child.isBone) return;
 
-      const name = this.normalizeBoneName(child.name);
+      const name = this.normalizeBoneName(
+        child.name
+      );
 
-      if (!bones.has(name)) {
-        bones.set(name, child);
+      if (!result.has(name)) {
+        result.set(name, child);
       }
     });
 
-    return bones;
+    return result;
   }
 
   isDescendantOf(object, ancestor) {
     for (
-      let parent = object.parent;
-      parent;
-      parent = parent.parent
+      let node = object.parent;
+      node;
+      node = node.parent
     ) {
-      if (parent === ancestor) return true;
+      if (node === ancestor) return true;
     }
 
     return false;
@@ -156,33 +158,21 @@ export class Avatar {
       -this.minCrouch
     );
 
-    const scale = this.origin
-      ? this.origin.scale.y
-      : 1;
-
-    this.#hipsPositionY =
-      this.initialHipsPosition.y * scale +
-      this.crouchDeltaY;
-
-    if (this.poleAnchor) {
+    if (this.poleAnchor && this.origin) {
       this.poleAnchor.position.y =
-        this.crouchDeltaY / scale;
+        this.crouchDeltaY / this.origin.scale.y;
     }
   }
 
   // --------------------------------------------------
-  // Head
+  // Head controls
   // --------------------------------------------------
 
-  setHeadRotation(
-    pitchDegrees,
-    yawDegrees,
-    rollDegrees
-  ) {
+  setHeadRotation(x, y, z) {
     this.headEuler.set(
-      THREE.MathUtils.degToRad(pitchDegrees),
-      THREE.MathUtils.degToRad(yawDegrees),
-      THREE.MathUtils.degToRad(rollDegrees),
+      THREE.MathUtils.degToRad(x),
+      THREE.MathUtils.degToRad(y),
+      THREE.MathUtils.degToRad(z),
       'XYZ'
     );
   }
@@ -192,9 +182,7 @@ export class Avatar {
   }
 
   applyHeadOverride() {
-    if (!this.headOverride || !this.head) {
-      return;
-    }
+    if (!this.headOverride || !this.head) return;
 
     this.headOffsetQuaternion.setFromEuler(
       this.headEuler
@@ -230,7 +218,7 @@ export class Avatar {
   }
 
   // --------------------------------------------------
-  // Hand IK
+  // Hand and pole controls
   // --------------------------------------------------
 
   setHandPosition(side, components) {
@@ -244,7 +232,11 @@ export class Avatar {
     );
   }
 
-  setHandWorldPose(side, worldPosition, worldQuaternion) {
+  setHandWorldPose(
+    side,
+    worldPosition,
+    worldQuaternion
+  ) {
     const target = this.handTargets[side];
 
     if (!target) {
@@ -287,19 +279,15 @@ export class Avatar {
     }
   }
 
-  // --------------------------------------------------
-  // Pole targets
-  // --------------------------------------------------
-
   setPolePosition(name, components) {
-    const pole = this.poleTargets[name];
+    const target = this.poleTargets[name];
 
-    if (!pole) {
+    if (!target) {
       throw new Error(`Unknown pole: ${name}`);
     }
 
     this.setVectorComponents(
-      pole.position,
+      target.position,
       components
     );
   }
@@ -327,25 +315,23 @@ export class Avatar {
   }
 
   // --------------------------------------------------
-  // Animation
+  // Animation controls
   // --------------------------------------------------
 
   setAnimation(name) {
-    if (!this.animationClips.has(name)) {
+    const clip = this.animationClips.get(name);
+
+    if (!clip) {
       throw new Error(`Unknown animation: ${name}`);
     }
 
-    if (this.currentAnimation === name) {
-      return;
-    }
+    if (this.currentAnimation === name) return;
 
     if (this.currentAction) {
       this.currentAction.stop();
     }
 
-    this.currentAction = this.mixer.clipAction(
-      this.animationClips.get(name)
-    );
+    this.currentAction = this.mixer.clipAction(clip);
 
     this.currentAction
       .reset()
@@ -379,11 +365,9 @@ export class Avatar {
       position: this.vectorToObject(
         this.handTargets[side].position
       ),
-
       rotation: this.rotationToDegrees(
         this.handTargets[side].rotation
       ),
-
       pole: this.vectorToObject(
         this.poleTargets[`${side}Elbow`].position
       )
@@ -416,7 +400,6 @@ export class Avatar {
             this.poleTargets.leftKnee.position
           )
         },
-
         right: {
           pole: this.vectorToObject(
             this.poleTargets.rightKnee.position
@@ -427,7 +410,7 @@ export class Avatar {
   }
 
   // --------------------------------------------------
-  // Transform markers
+  // Debug markers
   // --------------------------------------------------
 
   createTransformMarker(parent, radius, color) {
@@ -440,28 +423,19 @@ export class Avatar {
       [1, 2]
     ]) {
       for (let i = 0; i < segments; i++) {
-        const angleA =
-          i * Math.PI * 2 / segments;
+        const a = i * Math.PI * 2 / segments;
+        const b = (i + 1) * Math.PI * 2 / segments;
 
-        const angleB =
-          (i + 1) * Math.PI * 2 / segments;
+        const pa = [0, 0, 0];
+        const pb = [0, 0, 0];
 
-        const pointA = [0, 0, 0];
-        const pointB = [0, 0, 0];
+        pa[u] = Math.cos(a) * radius;
+        pa[v] = Math.sin(a) * radius;
 
-        pointA[u] =
-          Math.cos(angleA) * radius;
+        pb[u] = Math.cos(b) * radius;
+        pb[v] = Math.sin(b) * radius;
 
-        pointA[v] =
-          Math.sin(angleA) * radius;
-
-        pointB[u] =
-          Math.cos(angleB) * radius;
-
-        pointB[v] =
-          Math.sin(angleB) * radius;
-
-        vertices.push(...pointA, ...pointB);
+        vertices.push(...pa, ...pb);
       }
     }
 
@@ -523,28 +497,18 @@ export class Avatar {
     name
   ) {
     const tracks = [];
-
-    const sourceHips = sourceBones.get('hips');
     const targetHips = targetBones.get('hips');
 
     const sourceLeg = sourceBones.get('leftleg');
     const targetLeg = targetBones.get('leftleg');
 
-    let motionScale = 1;
-
-    if (
+    const motionScale =
       sourceLeg &&
-      targetLeg &&
-      sourceLeg.position.length() > EPSILON
-    ) {
-      motionScale =
-        targetLeg.position.length() /
-        sourceLeg.position.length();
-    }
-
-    const sourceHipRest = sourceHips
-      ? sourceHips.position.clone()
-      : null;
+        targetLeg &&
+        sourceLeg.position.length() > EPSILON
+        ? targetLeg.position.length() /
+        sourceLeg.position.length()
+        : 1;
 
     const targetHipRest =
       targetHips.position.clone();
@@ -563,18 +527,18 @@ export class Avatar {
       const property =
         sourceTrack.name.slice(separator + 1);
 
-      const match =
+      const boneMatch =
         sourceName.match(/\.bones\[([^\]]+)\]/);
 
-      if (match) {
-        sourceName = match[1];
+      if (boneMatch) {
+        sourceName = boneMatch[1];
       }
 
-      const normalizedName =
+      const boneName =
         this.normalizeBoneName(sourceName);
 
       const targetBone =
-        targetBones.get(normalizedName);
+        targetBones.get(boneName);
 
       if (!targetBone) continue;
 
@@ -585,9 +549,15 @@ export class Avatar {
           `${targetBone.uuid}.quaternion`;
 
         const sourceBone =
-          sourceBones.get(normalizedName);
+          sourceBones.get(boneName);
 
-        if (sourceBone) {
+        // Keep the direct Mixamo arm animations.
+        const isArmBone =
+          /^(left|right)(shoulder|arm|forearm|hand)/.test(
+            boneName
+          );
+
+        if (sourceBone && !isArmBone) {
           const offset = targetBone.quaternion
             .clone()
             .multiply(
@@ -618,10 +588,12 @@ export class Avatar {
         track.name =
           `${targetBone.uuid}.position`;
 
-        const rest = sourceHipRest ||
-          new THREE.Vector3(
-            ...track.values.slice(0, 3)
-          );
+        // Anchor the first animation frame to
+        // the avatar's own Hips reference position.
+
+        const baseX = track.values[0];
+        const baseY = track.values[1];
+        const baseZ = track.values[2];
 
         for (
           let i = 0;
@@ -630,18 +602,15 @@ export class Avatar {
         ) {
           track.values[i] =
             targetHipRest.x +
-            (track.values[i] - rest.x) *
-            motionScale;
+            (track.values[i] - baseX) * motionScale;
 
           track.values[i + 1] =
             targetHipRest.y +
-            (track.values[i + 1] - rest.y) *
-            motionScale;
+            (track.values[i + 1] - baseY) * motionScale;
 
           track.values[i + 2] =
             targetHipRest.z +
-            (track.values[i + 2] - rest.z) *
-            motionScale;
+            (track.values[i + 2] - baseZ) * motionScale;
         }
 
         tracks.push(track);
@@ -669,9 +638,6 @@ export class Avatar {
     this.origin = origin;
     this.model = loadedAvatar;
 
-    // Keep all FBX materials as originally loaded.
-    // No forced DoubleSide or custom shader.
-
     this.model.traverse(child => {
       if (child.isSkinnedMesh) {
         child.frustumCulled = false;
@@ -682,137 +648,113 @@ export class Avatar {
     this.root.name = 'Avatar';
 
     this.root.add(this.model);
-    origin.add(this.root);
+    this.origin.add(this.root);
 
-    // Normalize avatar height.
+    // Normalize the character in its FBX reference pose.
 
     const bounds =
-      new THREE.Box3().setFromObject(this.model);
+      new THREE.Box3().setFromObject(this.model, true);
 
-    const rawHeight =
+    const height =
       bounds.getSize(new THREE.Vector3()).y;
 
-    if (rawHeight < EPSILON) {
-      throw new Error('Invalid avatar height.');
+    if (bounds.isEmpty() || height < EPSILON) {
+      throw new Error('Invalid avatar bounding box.');
     }
 
     this.root.scale.setScalar(
-      this.height / rawHeight
+      this.height / height
     );
 
     this.root.updateWorldMatrix(true, true);
 
-    const scaledBounds =
-      new THREE.Box3().setFromObject(this.model);
+    // Resolve the Mixamo skeleton.
 
-    this.root.position.y = -scaledBounds.min.y;
-    this.root.updateWorldMatrix(true, true);
+    const bones = this.collectBones(this.model);
 
-    // Resolve bones.
+    const hips = bones.get('hips');
+    const head = bones.get('head');
 
-    const targetBones = this.collectBones(this.model);
+    const lUpperLeg = bones.get('leftupleg');
+    const lLeg = bones.get('leftleg');
+    const lFoot = bones.get('leftfoot');
 
-    const sourceSets = new Map(
-      Object.entries(animationModels).map(
-        ([name, object]) => [
-          name,
-          this.collectBones(object)
-        ]
-      )
-    );
+    const rUpperLeg = bones.get('rightupleg');
+    const rLeg = bones.get('rightleg');
+    const rFoot = bones.get('rightfoot');
 
-    this.hips = targetBones.get('hips');
-    this.head = targetBones.get('head');
+    const lArm = bones.get('leftarm');
+    const lForearm = bones.get('leftforearm');
+    const lHand = bones.get('lefthand');
 
-    const lu = targetBones.get('leftupleg');
-    const ll = targetBones.get('leftleg');
-    const lf = targetBones.get('leftfoot');
-    const lt = targetBones.get('lefttoebase');
-
-    const ru = targetBones.get('rightupleg');
-    const rl = targetBones.get('rightleg');
-    const rf = targetBones.get('rightfoot');
-    const rt = targetBones.get('righttoebase');
-
-    const la = targetBones.get('leftarm');
-    const lfa = targetBones.get('leftforearm');
-    const lh = targetBones.get('lefthand');
-
-    const ra = targetBones.get('rightarm');
-    const rfa = targetBones.get('rightforearm');
-    const rh = targetBones.get('righthand');
+    const rArm = bones.get('rightarm');
+    const rForearm = bones.get('rightforearm');
+    const rHand = bones.get('righthand');
 
     const required = [
-      this.hips, this.head,
-      lu, ll, lf,
-      ru, rl, rf,
-      la, lfa, lh,
-      ra, rfa, rh
+      hips, head,
+      lUpperLeg, lLeg, lFoot,
+      rUpperLeg, rLeg, rFoot,
+      lArm, lForearm, lHand,
+      rArm, rForearm, rHand
     ];
 
     if (required.some(bone => !bone)) {
-      console.table([...targetBones.keys()]);
-
       throw new Error(
-        'Missing required Mixamo bones.'
+        `Missing Mixamo bones: ${[...bones.keys()].join(', ')}`
       );
     }
 
-    const validHierarchy =
-      this.isDescendantOf(lu, this.hips) &&
-      this.isDescendantOf(ll, lu) &&
-      this.isDescendantOf(lf, ll) &&
-      this.isDescendantOf(ru, this.hips) &&
-      this.isDescendantOf(rl, ru) &&
-      this.isDescendantOf(rf, rl) &&
-      this.isDescendantOf(lfa, la) &&
-      this.isDescendantOf(lh, lfa) &&
-      this.isDescendantOf(rfa, ra) &&
-      this.isDescendantOf(rh, rfa);
+    // Validate the IK hierarchies.
 
-    if (!validHierarchy) {
-      throw new Error(
-        'Invalid limb hierarchy for two-bone IK.'
-      );
+    for (const [a, b] of [
+      [lUpperLeg, hips],
+      [lLeg, lUpperLeg],
+      [lFoot, lLeg],
+      [rUpperLeg, hips],
+      [rLeg, rUpperLeg],
+      [rFoot, rLeg],
+      [lForearm, lArm],
+      [lHand, lForearm],
+      [rForearm, rArm],
+      [rHand, rForearm]
+    ]) {
+      if (!this.isDescendantOf(a, b)) {
+        throw new Error(
+          'Invalid Mixamo bone hierarchy.'
+        );
+      }
     }
+
+    this.hips = hips;
+    this.head = head;
 
     this.headRestQuaternion.copy(
-      this.head.quaternion
+      head.quaternion
     );
 
-    this.hips.getWorldPosition(
-      this.initialHipsPosition
-    );
-
-    this.origin.worldToLocal(
-      this.initialHipsPosition
-    );
-
-    this.#hipsPositionY =
-      this.initialHipsPosition.y;
-
-    // Analytical two-bone IK.
+    // Create two-bone IK chains.
 
     this.legIK = [
       new IK({
-        bones: [lu, ll, lf],
-        poleBone: lt
+        bones: [lUpperLeg, lLeg, lFoot],
+        poleBone: bones.get('lefttoebase')
       }),
       new IK({
-        bones: [ru, rl, rf],
-        poleBone: rt
+        bones: [rUpperLeg, rLeg, rFoot],
+        poleBone: bones.get('righttoebase')
       })
     ];
 
     this.handIK.left = new IK({
-      bones: [la, lfa, lh]
+      bones: [lArm, lForearm, lHand]
     });
 
     this.handIK.right = new IK({
-      bones: [ra, rfa, rh]
+      bones: [rArm, rForearm, rHand]
     });
 
-    // Hand targets.
+    // Create hand targets.
 
     for (const side of ['left', 'right']) {
       const target = new THREE.Object3D();
@@ -830,42 +772,39 @@ export class Avatar {
         'XYZ'
       );
 
-      origin.add(target);
+      this.origin.add(target);
       this.handTargets[side] = target;
 
       this.createTransformMarker(
         target,
         0.055,
-        side === 'left' ? 0xffaa33 : 0x33ccff
+        side === 'left'
+          ? 0xffaa33
+          : 0x33ccff
       );
     }
 
-    // Elbow and knee poles follow manual crouch.
+    // Create elbow and knee pole targets.
 
     this.poleAnchor = new THREE.Group();
     this.poleAnchor.name = 'PoleAnchor';
 
-    origin.add(this.poleAnchor);
+    this.origin.add(this.poleAnchor);
 
-    const colors = {
+    const poleColors = {
       leftElbow: 0xffaa33,
       rightElbow: 0x33ccff,
       leftKnee: 0xffdd33,
       rightKnee: 0x66ff66
     };
 
-    for (const name of [
-      'leftElbow',
-      'rightElbow',
-      'leftKnee',
-      'rightKnee'
-    ]) {
+    for (const name of Object.keys(poleColors)) {
       this.poleTargets[name] =
         this.createPoleTarget(
           this.poleAnchor,
           name,
           DEFAULT_TRANSFORMS[name],
-          colors[name]
+          poleColors[name]
         );
     }
 
@@ -885,19 +824,17 @@ export class Avatar {
       this.poleTargets.rightElbow
     );
 
-    // Hips offset pivot.
-
-    const hipsParent = this.hips.parent;
+    // Insert a neutral parent for crouch.
 
     this.hipOffset = new THREE.Object3D();
     this.hipOffset.name = 'DynamicHipOffset';
 
-    hipsParent.add(this.hipOffset);
+    this.hips.parent.add(this.hipOffset);
     this.hipOffset.add(this.hips);
 
-    this.root.updateWorldMatrix(true, true);
+    // Skeleton visualization.
 
-    // SkeletonHelper uses an independent matrix.
+    this.root.updateWorldMatrix(true, true);
 
     this.skeletonHelper =
       new THREE.SkeletonHelper(this.root);
@@ -912,12 +849,11 @@ export class Avatar {
     this.skeletonHelper.renderOrder = 10;
     this.skeletonHelper.visible = this.displaySkeleton;
 
-    origin.add(this.skeletonHelper);
+    this.origin.add(this.skeletonHelper);
 
-    // Animation mixer.
+    // Retarget animations.
 
-    this.mixer =
-      new THREE.AnimationMixer(this.model);
+    this.mixer = new THREE.AnimationMixer(this.model);
 
     for (
       const [name, object] of
@@ -933,18 +869,68 @@ export class Avatar {
         name,
         this.createAnimationClip(
           object.animations[0],
-          sourceSets.get(name),
-          targetBones,
+          this.collectBones(object),
+          bones,
           name
         )
       );
     }
 
-    this.setAnimation(
-      this.animationClips.has('walk')
-        ? 'walk'
-        : this.animationClips.keys().next().value
+    // --------------------------------------------------
+    // One-time ground alignment using foot bones
+    // --------------------------------------------------
+
+    const initial = this.animationClips.has('walk')
+      ? 'walk'
+      : this.animationClips.keys().next().value;
+
+    const reference = this.animationClips.has('idle')
+      ? 'idle'
+      : initial;
+
+    // Apply a stable animated pose before calibration.
+    this.setAnimation(reference);
+
+    // FBX skinned mesh bounds are not reliable for
+    // these exports. Use actual world-space foot joints.
+
+    const toeBones = [
+      bones.get('lefttoebase'),
+      bones.get('righttoebase')
+    ].filter(Boolean);
+
+    const groundBones = toeBones.length
+      ? toeBones
+      : [lFoot, rFoot];
+
+    const probe = new THREE.Vector3();
+
+    // Measure relative to Origin's ground plane,
+    // independently from the FBX's internal transforms.
+
+    const lowestBoneY = Math.min(
+      ...groundBones.map(bone => {
+        bone.getWorldPosition(probe);
+
+        return this.origin.worldToLocal(
+          probe
+        ).y;
+      })
     );
+
+    // Avatar.root is a direct child of Origin.
+    // Both values use Origin-local coordinates.
+    this.root.position.y -= lowestBoneY;
+
+    this.root.updateMatrix();
+    this.root.updateWorldMatrix(true, true);
+
+    // Keep SkeletonHelper aligned with Avatar.root.
+    this.skeletonHelper.matrix.copy(
+      this.root.matrix
+    );
+
+    this.setAnimation(initial);
 
     return this;
   }
@@ -954,26 +940,16 @@ export class Avatar {
   // --------------------------------------------------
 
   update(deltaTime) {
-    if (!this.mixer) {
-      return;
-    }
+    if (!this.mixer) return;
 
-    // Restore animation poses before solving IK.
-
-    for (const chain of this.legIK) {
+    for (const chain of [
+      ...this.legIK,
+      ...Object.values(this.handIK)
+    ]) {
       chain.restorePose();
     }
 
-    for (const chain of Object.values(this.handIK)) {
-      chain.restorePose();
-    }
-
-    const neutralHipsY =
-      this.initialHipsPosition.y *
-      this.origin.scale.y;
-
-    this.crouchDeltaY =
-      this.#hipsPositionY - neutralHipsY;
+    // Crouch is a separate world-space offset.
 
     this.worldDelta.set(
       0,
@@ -992,13 +968,18 @@ export class Avatar {
 
     this.root.updateWorldMatrix(true, true);
 
-    for (const chain of this.legIK) {
-      chain.captureAnimatedPose(this.worldDelta);
+    // Capture the current animation pose.
+
+    for (const chain of [
+      ...this.legIK,
+      ...Object.values(this.handIK)
+    ]) {
+      chain.captureAnimatedPose(
+        this.worldDelta
+      );
     }
 
-    for (const chain of Object.values(this.handIK)) {
-      chain.captureAnimatedPose(this.worldDelta);
-    }
+    // Compensate leg positions while crouching.
 
     if (Math.abs(this.crouchDeltaY) > EPSILON) {
       for (const chain of this.legIK) {
@@ -1006,15 +987,20 @@ export class Avatar {
       }
     }
 
+    // Apply arm IK only when enabled.
+
     for (const side of ['left', 'right']) {
-      if (!this.armIKEnabled[side]) {
-        continue;
-      }
+      if (!this.armIKEnabled[side]) continue;
 
       const target = this.handTargets[side];
 
-      target.getWorldPosition(this.targetPosition);
-      target.getWorldQuaternion(this.targetQuaternion);
+      target.getWorldPosition(
+        this.targetPosition
+      );
+
+      target.getWorldQuaternion(
+        this.targetQuaternion
+      );
 
       this.handIK[side].solveToTarget(
         this.targetPosition,
