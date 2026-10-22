@@ -8,6 +8,7 @@ import { Player } from './player.js';
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const DEG = 180 / Math.PI;
 const DEADZONE = 0.18;
+const VR_EULER_ORDER = 'YXZ';
 
 export class Scene {
   constructor({
@@ -36,13 +37,9 @@ export class Scene {
       desktop: document.getElementById('mode-desktop'),
       vr: document.getElementById('mode-vr')
     };
-
     this.modeHint = document.getElementById('mode-hint');
 
-    // --------------------------------------------------
     // Scene and cameras
-    // --------------------------------------------------
-
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x202020);
 
@@ -55,31 +52,18 @@ export class Scene {
       65, 1, 0.16, 100
     );
 
-    // --------------------------------------------------
-    // Renderer and WebXR
-    // --------------------------------------------------
-
     this.renderer = new THREE.WebGLRenderer({
       antialias: true
     });
-
     this.renderer.setPixelRatio(
       Math.min(window.devicePixelRatio, 2)
     );
-
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType('local-floor');
-
     this.viewport.appendChild(this.renderer.domElement);
 
-    // --------------------------------------------------
-    // Lights and grid
-    // --------------------------------------------------
-
     this.scene.add(
-      new THREE.HemisphereLight(
-        0xffffff, 0x555555, 2
-      )
+      new THREE.HemisphereLight(0xffffff, 0x555555, 2)
     );
 
     const light = new THREE.DirectionalLight(
@@ -94,22 +78,13 @@ export class Scene {
     this.grid.position.y = -0.004;
     this.scene.add(this.grid);
 
-    // --------------------------------------------------
-    // Debug camera controls
-    // --------------------------------------------------
-
     this.orbit = new OrbitControls(
       this.debugCamera,
       this.renderer.domElement
     );
-
     this.orbit.target.set(0, 0.95, 0);
     this.orbit.enableDamping = true;
     this.orbit.update();
-
-    // --------------------------------------------------
-    // Avatar and player
-    // --------------------------------------------------
 
     this.avatar = new Avatar({
       height: characterHeight,
@@ -123,114 +98,67 @@ export class Scene {
       radius: capsuleRadius,
       yaw: capsuleYaw
     });
-
     this.scene.add(this.player);
-
-    // --------------------------------------------------
-    // XR rig
-    // --------------------------------------------------
 
     this.xrRig = new THREE.Group();
     this.xrRig.name = 'XRTrackingRig';
     this.scene.add(this.xrRig);
-
-    // --------------------------------------------------
-    // Game modes
-    // --------------------------------------------------
 
     this.mode = 'debug';
     this.previousFlatMode = 'debug';
     this.pendingExitMode = null;
     this.savedDebugState = null;
 
-    // --------------------------------------------------
-    // Desktop settings
-    // --------------------------------------------------
-
     this.keys = new Set();
     this.desktopPitch = 0;
-
     this.desktopCameraForwardOffset =
       desktopCameraForwardOffset;
-
     this.desktopCameraNear = 0.35;
     this.vrCameraNear = 0.16;
-
     this.mouseSensitivity = 0.002;
     this.walkSpeed = 2.2;
-
-    // --------------------------------------------------
-    // VR settings
-    // --------------------------------------------------
 
     this.vrWalkSpeed = 2.0;
     this.vrTurnSpeed = 1.7;
 
-    // --------------------------------------------------
-    // Reusable transforms
-    // --------------------------------------------------
+    this.ui = {};
 
+    // Reusable XR transforms
     this.headLocal = new THREE.Vector3();
     this.headWorld = new THREE.Vector3();
-
     this.beforeTurn = new THREE.Vector3();
     this.afterTurn = new THREE.Vector3();
-
     this.trackedPosition = new THREE.Vector3();
     this.trackedQuaternion = new THREE.Quaternion();
     this.rigQuaternion = new THREE.Quaternion();
-
+    this.vrHeadQuaternion = new THREE.Quaternion();
     this.headEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-
     this.moveForward = new THREE.Vector3();
     this.moveRight = new THREE.Vector3();
 
-    // --------------------------------------------------
-    // VR headset alignment
-    // --------------------------------------------------
-
     this.vrNeedsAlignment = true;
     this.vrReferenceSpace = null;
-
     this.vrReferenceSpaceReset = () => {
       this.vrNeedsAlignment = true;
     };
 
-    // --------------------------------------------------
-    // VR hand tracking
-    // --------------------------------------------------
-
-    this.vrHandGrace = {
-      left: 0,
-      right: 0
-    };
-
+    this.vrHandGrace = { left: 0, right: 0 };
     this.vrHasTrackedHands = {
       left: false,
       right: false
     };
 
-    // Controller-local rotation offsets.
-    //
-    // Quest grip poses use different axes from Mixamo
-    // wrist bones. Both hands currently require a 180°
-    // yaw correction.
-    //
-    // Angles are expressed in degrees:
-    // [pitch X, yaw Y, roll Z].
-    //
-    // These can be adjusted independently if needed.
-
+    // Current user-tested wrist rotations.
+    // [X, Y, Z] in degrees, Euler order YXZ.
     this.vrHandRotationDegrees = {
-      left: [135, 180, 0],
-      right: [225, 180, 0]
+      left: [180, 180, 0],
+      right: [180, 180, 0]
     };
 
     this.vrHandRotationOffsets = {};
 
     for (const side of ['left', 'right']) {
-      const [x, y, z] =
-        this.vrHandRotationDegrees[side];
+      const [x, y, z] = this.vrHandRotationDegrees[side];
 
       this.vrHandRotationOffsets[side] =
         new THREE.Quaternion().setFromEuler(
@@ -238,70 +166,71 @@ export class Scene {
             THREE.MathUtils.degToRad(x),
             THREE.MathUtils.degToRad(y),
             THREE.MathUtils.degToRad(z),
-            'YXZ'
+            VR_EULER_ORDER
           )
         );
     }
 
-    // Register native Three.js XR controller grips
-    // before requesting an immersive session.
-    //
-    // This allows WebXRManager to initialize and
-    // update controller transforms immediately when
-    // the runtime provides input sources.
-
-    this.vrGripsBySide = {
-      left: null,
-      right: null
-    };
+    // Register native XR grips before entering VR.
+    this.vrGripsBySide = { left: null, right: null };
 
     this.vrGrips = [0, 1].map(index => {
-      const grip =
-        this.renderer.xr.getControllerGrip(index);
-
+      const grip = this.renderer.xr.getControllerGrip(index);
       this.xrRig.add(grip);
 
       grip.addEventListener('connected', event => {
         const side = event.data?.handedness;
 
-        if (side !== 'left' && side !== 'right') {
-          return;
+        if (side === 'left' || side === 'right') {
+          this.vrGripsBySide[side] = grip;
+          console.info(`[VR] ${side} grip connected`);
         }
-
-        this.vrGripsBySide[side] = grip;
-
-        console.info(
-          `[VR] ${side} controller connected`
-        );
       });
 
       grip.addEventListener('disconnected', event => {
         const side = event.data?.handedness;
 
-        if (side !== 'left' && side !== 'right') {
-          return;
-        }
+        if (side === 'left' || side === 'right') {
+          if (this.vrGripsBySide[side] === grip) {
+            this.vrGripsBySide[side] = null;
+          }
 
-        if (this.vrGripsBySide[side] === grip) {
-          this.vrGripsBySide[side] = null;
+          this.vrHasTrackedHands[side] = false;
+          this.vrHandGrace[side] = 0;
         }
-
-        this.vrHasTrackedHands[side] = false;
-        this.vrHandGrace[side] = 0;
       });
 
       return grip;
     });
 
-    this.vrFrameCount = 0;
-    this.vrLastInputState = '';
+    // Each live sample uses avatar-local coordinates.
+    this.vrGripSamples = {
+      left: null,
+      right: null
+    };
+
+    this.vrCalibration = {
+      left: {
+        comfort: null,
+        visual: null,
+        result: null
+      },
+      right: {
+        comfort: null,
+        visual: null,
+        result: null
+      }
+    };
+
+    this.vrHandBones = {};
     this.vrStarting = false;
 
-    // --------------------------------------------------
-    // UI and timer
-    // --------------------------------------------------
-
-    this.ui = {};
+    // Head-locked diagnostic panel.
+    this.vrHUDOffset = new THREE.Vector3(
+      0, 0.42, -1.35
+    );
+    this.vrHUDClock = 0;
+    this.createVRCalibrationHUD();
 
     this.timer = new THREE.Timer();
     this.timer.connect(document);
@@ -332,16 +261,11 @@ export class Scene {
 
     const [model, ...sources] = await Promise.all([
       loader.loadAsync(this.avatarUrl),
-      ...entries.map(([, url]) =>
-        loader.loadAsync(url)
-      )
+      ...entries.map(([, url]) => loader.loadAsync(url))
     ]);
 
     const animations = Object.fromEntries(
-      entries.map(([name], i) => [
-        name,
-        sources[i]
-      ])
+      entries.map(([name], i) => [name, sources[i]])
     );
 
     this.player.origin.scale.setScalar(1);
@@ -354,8 +278,14 @@ export class Scene {
     );
 
     this.player.applyDimensions();
-    this.player.setHeadOverride(true);
 
+    // References to the actual Mixamo hand bones.
+    this.vrHandBones = {
+      left: this.avatar.handIK.left.bones[2],
+      right: this.avatar.handIK.right.bones[2]
+    };
+
+    this.player.setHeadOverride(true);
     this.player.setEyesRotation({
       x: 0,
       y: 0,
@@ -368,7 +298,7 @@ export class Scene {
   }
 
   // --------------------------------------------------
-  // Mode buttons
+  // Mode selection
   // --------------------------------------------------
 
   installModeButtons() {
@@ -405,27 +335,18 @@ export class Scene {
 
     try {
       const supported =
-        await navigator.xr.isSessionSupported(
-          'immersive-vr'
-        );
+        await navigator.xr.isSessionSupported('immersive-vr');
 
       button.disabled = !supported;
-
       button.title = supported
         ? 'Enter immersive VR'
         : 'Immersive VR unavailable';
-
     } catch (error) {
       button.title =
         'Could not determine immersive VR support';
-
       console.warn(error);
     }
   }
-
-  // --------------------------------------------------
-  // Debug state
-  // --------------------------------------------------
 
   saveDebugState() {
     if (this.savedDebugState) return;
@@ -433,37 +354,23 @@ export class Scene {
     const state = this.player.getControlState();
 
     this.savedDebugState = {
-      ik: {
-        ...state.ik
-      },
-
-      view: {
-        ...state.view
-      },
-
-      eyes: {
-        ...state.eyes.rotation
-      },
-
+      ik: { ...state.ik },
+      view: { ...state.view },
+      eyes: { ...state.eyes.rotation },
       eyeY: state.eyes.position.y,
       headOverride: state.eyes.headOverride,
-
       animation: {
         name: state.animation.current,
         playing: state.animation.playing
       },
-
       hands: Object.fromEntries(
         ['left', 'right'].map(side => [
           side,
           {
             position:
-              this.avatar.handTargets[side]
-                .position.clone(),
-
+              this.avatar.handTargets[side].position.clone(),
             quaternion:
-              this.avatar.handTargets[side]
-                .quaternion.clone()
+              this.avatar.handTargets[side].quaternion.clone()
           }
         ])
       )
@@ -476,10 +383,7 @@ export class Scene {
     const state = this.savedDebugState;
 
     for (const side of ['left', 'right']) {
-      this.avatar.setArmIKEnabled(
-        side,
-        state.ik[side]
-      );
+      this.avatar.setArmIKEnabled(side, state.ik[side]);
 
       this.avatar.handTargets[side].position.copy(
         state.hands[side].position
@@ -493,32 +397,17 @@ export class Scene {
     this.avatar.setDisplayTransforms(
       state.view.displayTransforms
     );
-
     this.avatar.setDisplaySkeleton(
       state.view.displaySkeleton
     );
-
     this.player.setDisplayCapsule(
       state.view.displayCapsule
     );
-
     this.player.setEyesRotation(state.eyes);
-
-    this.player.setEyesPosition({
-      y: state.eyeY
-    });
-
-    this.player.setHeadOverride(
-      state.headOverride
-    );
-
-    this.avatar.setAnimation(
-      state.animation.name
-    );
-
-    this.avatar.setPlaying(
-      state.animation.playing
-    );
+    this.player.setEyesPosition({ y: state.eyeY });
+    this.player.setHeadOverride(state.headOverride);
+    this.avatar.setAnimation(state.animation.name);
+    this.avatar.setPlaying(state.animation.playing);
 
     this.savedDebugState = null;
   }
@@ -536,15 +425,8 @@ export class Scene {
       this.mode !== 'debug'
     );
 
-    for (
-      const [mode, button] of
-      Object.entries(this.modeButtons)
-    ) {
-      button.classList.toggle(
-        'active',
-        mode === this.mode
-      );
-
+    for (const [mode, button] of Object.entries(this.modeButtons)) {
+      button.classList.toggle('active', mode === this.mode);
       button.setAttribute(
         'aria-pressed',
         String(mode === this.mode)
@@ -558,26 +440,17 @@ export class Scene {
     this.modeHint.textContent = text;
   }
 
-  // --------------------------------------------------
-  // Mode transitions
-  // --------------------------------------------------
-
   setMode(mode) {
     if (mode === 'vr') {
-      if (this.mode !== 'vr') {
-        this.enterVR();
-      }
-
+      if (this.mode !== 'vr') this.enterVR();
       return;
     }
 
     if (this.renderer.xr.isPresenting) {
       this.pendingExitMode = mode;
-
       this.renderer.xr.getSession()
         ?.end()
         .catch(console.error);
-
       return;
     }
 
@@ -585,10 +458,7 @@ export class Scene {
   }
 
   activateFlatMode(mode) {
-    if (
-      this.mode === 'debug' &&
-      mode !== 'debug'
-    ) {
+    if (this.mode === 'debug' && mode !== 'debug') {
       this.saveDebugState();
     }
 
@@ -596,13 +466,13 @@ export class Scene {
 
     if (
       mode !== 'desktop' &&
-      document.pointerLockElement ===
-      this.renderer.domElement
+      document.pointerLockElement === this.renderer.domElement
     ) {
       document.exitPointerLock();
     }
 
     this.mode = mode;
+    this.vrHUD.visible = false;
     this.orbit.enabled = mode === 'debug';
 
     if (mode === 'debug') {
@@ -628,7 +498,6 @@ export class Scene {
       this.setHint(
         'Debug: orbit with the mouse, edit settings in the sidebar.'
       );
-
     } else if (mode === 'desktop') {
       this.setGameplayAppearance();
 
@@ -647,16 +516,11 @@ export class Scene {
         z: 0
       });
 
-      // The FPS camera follows Player, not Head.
-
       this.player.add(this.gameCamera);
       this.updateDesktopCameraPosition();
 
       this.gameCamera.near = this.desktopCameraNear;
       this.gameCamera.updateProjectionMatrix();
-
-      // Mixamo avatar faces +Z; camera faces -Z.
-
       this.gameCamera.rotation.set(
         0, Math.PI, 0, 'YXZ'
       );
@@ -672,10 +536,6 @@ export class Scene {
     this.activateModeUI();
   }
 
-  // --------------------------------------------------
-  // Desktop camera
-  // --------------------------------------------------
-
   updateDesktopCameraPosition() {
     this.gameCamera.position.set(
       0,
@@ -683,10 +543,6 @@ export class Scene {
       this.desktopCameraForwardOffset
     );
   }
-
-  // --------------------------------------------------
-  // Locomotion animation
-  // --------------------------------------------------
 
   updateLocomotionAnimation(walking) {
     const name = walking ? 'walk' : 'idle';
@@ -697,13 +553,11 @@ export class Scene {
   }
 
   // --------------------------------------------------
-  // VR reference space
+  // WebXR session
   // --------------------------------------------------
 
   watchVRReferenceSpace(referenceSpace) {
-    if (this.vrReferenceSpace === referenceSpace) {
-      return;
-    }
+    if (this.vrReferenceSpace === referenceSpace) return;
 
     this.vrReferenceSpace?.removeEventListener(
       'reset',
@@ -721,10 +575,6 @@ export class Scene {
 
     this.vrNeedsAlignment = true;
   }
-
-  // --------------------------------------------------
-  // VR session
-  // --------------------------------------------------
 
   async enterVR() {
     if (
@@ -746,16 +596,10 @@ export class Scene {
     try {
       session = await navigator.xr.requestSession(
         'immersive-vr',
-        {
-          requiredFeatures: ['local-floor']
-        }
+        { requiredFeatures: ['local-floor'] }
       );
-
     } catch (error) {
-      this.setHint(
-        `Unable to start VR: ${error.message}`
-      );
-
+      this.setHint(`Unable to start VR: ${error.message}`);
       console.warn(error);
       this.vrStarting = false;
       return;
@@ -779,28 +623,38 @@ export class Scene {
       this.orbit.enabled = false;
       this.setGameplayAppearance();
 
-      // Reset the headset and controller tracking state.
-
       this.vrNeedsAlignment = true;
       this.watchVRReferenceSpace(null);
 
       this.vrHandGrace.left = 0;
       this.vrHandGrace.right = 0;
-
       this.vrHasTrackedHands.left = false;
       this.vrHasTrackedHands.right = false;
-
       this.vrGripsBySide.left = null;
       this.vrGripsBySide.right = null;
 
-      this.vrFrameCount = 0;
-      this.vrLastInputState = '';
+      this.vrGripSamples = {
+        left: null,
+        right: null
+      };
+
+      this.vrCalibration = {
+        left: {
+          comfort: null,
+          visual: null,
+          result: null
+        },
+        right: {
+          comfort: null,
+          visual: null,
+          result: null
+        }
+      };
+
+      this.vrHUDClock = 1;
 
       this.avatar.setArmIKEnabled('left', false);
       this.avatar.setArmIKEnabled('right', false);
-
-      // Remove the Desktop camera offset.
-      // WebXR now provides the headset transform.
 
       this.gameCamera.rotation.set(0, 0, 0);
       this.gameCamera.position.set(0, 0, 0);
@@ -821,39 +675,28 @@ export class Scene {
       this.gameCamera.near = this.vrCameraNear;
       this.gameCamera.updateProjectionMatrix();
 
-      // --------------------------------------------------
-      // Session lifecycle
-      // --------------------------------------------------
-
       session.addEventListener(
         'end',
         () => {
           this.watchVRReferenceSpace(null);
+          this.vrHUD.visible = false;
 
           if (this.mode !== 'vr') return;
 
           const next =
-            this.pendingExitMode ||
-            this.previousFlatMode;
+            this.pendingExitMode || this.previousFlatMode;
 
           this.pendingExitMode = null;
-
           this.activateFlatMode(next);
         },
         { once: true }
       );
 
-      // XR input sources can be registered after session
-      // creation. Controller poses are still polled every
-      // XR frame, independently from this event.
-
       session.addEventListener(
         'inputsourceschange',
         () => {
-          this.vrLastInputState = '';
-
           console.info(
-            '[VR] Input sources changed:',
+            '[VR] Input sources:',
             Array.from(
               session.inputSources,
               source => ({
@@ -875,10 +718,15 @@ export class Scene {
         }
       );
 
-      // Set the VR mode before handing the XR session
-      // to Three.js so the first XR frame uses gameCamera.
+      // Primary trigger captures calibration poses.
+      session.addEventListener('selectstart', event => {
+        this.captureVRWrist(
+          event.inputSource?.handedness
+        );
+      });
 
       this.mode = 'vr';
+      this.vrHUD.visible = true;
 
       this.avatar.setPlaying(true);
       this.updateLocomotionAnimation(false);
@@ -886,16 +734,8 @@ export class Scene {
 
       await this.renderer.xr.setSession(session);
 
-      console.info('[VR] Session ready:', {
-        visibility: session.visibilityState,
-        inputSources: session.inputSources.length,
-        referenceSpace: Boolean(
-          this.renderer.xr.getReferenceSpace()
-        )
-      });
-
       this.setHint(
-        'VR: left stick move · right stick turn · headset/controller tracking'
+        'VR wrist calibration: first trigger natural, second trigger visual target.'
       );
 
     } catch (error) {
@@ -908,20 +748,19 @@ export class Scene {
       try {
         await session.end();
       } catch (_) {
-        // The XR session may already be closed.
+        // Session may already be closed.
       }
 
       if (this.mode === 'vr') {
         this.activateFlatMode(flatMode);
       }
-
     } finally {
       this.vrStarting = false;
     }
   }
 
   // --------------------------------------------------
-  // Desktop mouse and keyboard
+  // Desktop input
   // --------------------------------------------------
 
   installInputListeners() {
@@ -965,15 +804,12 @@ export class Scene {
 
         this.player.setCapsuleYaw(
           this.player.capsuleYaw -
-          event.movementX *
-          this.mouseSensitivity *
-          DEG
+          event.movementX * this.mouseSensitivity * DEG
         );
 
         this.desktopPitch = THREE.MathUtils.clamp(
           this.desktopPitch -
-          event.movementY *
-          this.mouseSensitivity,
+          event.movementY * this.mouseSensitivity,
           -Math.PI * 0.42,
           Math.PI * 0.42
         );
@@ -982,8 +818,7 @@ export class Scene {
           x: -this.desktopPitch * DEG
         });
 
-        this.gameCamera.rotation.x =
-          this.desktopPitch;
+        this.gameCamera.rotation.x = this.desktopPitch;
       }
     );
 
@@ -1036,7 +871,6 @@ export class Scene {
             `Pointer lock unavailable: ${error.message}`
           );
         });
-
     } catch (error) {
       this.setHint(
         `Pointer lock unavailable: ${error.message}`
@@ -1061,10 +895,6 @@ export class Scene {
     ].includes(code);
   }
 
-  // --------------------------------------------------
-  // Desktop movement and crouch
-  // --------------------------------------------------
-
   updateDesktop(delta) {
     const down = (...codes) =>
       codes.some(code => this.keys.has(code));
@@ -1076,8 +906,6 @@ export class Scene {
     const strafe =
       Number(down('KeyD', 'ArrowRight')) -
       Number(down('KeyA', 'KeyQ', 'ArrowLeft'));
-
-    // Mixamo avatar forward is +Z.
 
     const movement = this.moveForward.set(
       -strafe,
@@ -1099,9 +927,7 @@ export class Scene {
       );
     }
 
-    this.updateLocomotionAnimation(
-      forward > 0
-    );
+    this.updateLocomotionAnimation(forward > 0);
 
     const crouching = down(
       'ShiftLeft',
@@ -1122,7 +948,7 @@ export class Scene {
   }
 
   // --------------------------------------------------
-  // VR gamepad input
+  // VR locomotion
   // --------------------------------------------------
 
   readStick(source) {
@@ -1132,13 +958,8 @@ export class Scene {
       return { x: 0, y: 0 };
     }
 
-    let x = axes.length >= 4
-      ? axes[2]
-      : axes[0];
-
-    let y = axes.length >= 4
-      ? axes[3]
-      : axes[1];
+    let x = axes.length >= 4 ? axes[2] : axes[0];
+    let y = axes.length >= 4 ? axes[3] : axes[1];
 
     if (
       axes.length >= 4 &&
@@ -1155,28 +976,17 @@ export class Scene {
     };
   }
 
-  // --------------------------------------------------
-  // VR locomotion
-  // --------------------------------------------------
-
   updateVRLocomotion(delta, frame, headYaw) {
     let left = null;
     let right = null;
 
     for (const source of frame.session.inputSources) {
-      if (source.handedness === 'left') {
-        left = source;
-      }
-
-      if (source.handedness === 'right') {
-        right = source;
-      }
+      if (source.handedness === 'left') left = source;
+      if (source.handedness === 'right') right = source;
     }
 
     const moveStick = this.readStick(left);
     const turnStick = this.readStick(right);
-
-    // Rotate the virtual space around the headset.
 
     if (turnStick.x !== 0) {
       this.xrRig.updateWorldMatrix(true, false);
@@ -1199,12 +1009,10 @@ export class Scene {
         this.beforeTurn.z - this.afterTurn.z;
     }
 
-    // Headset forward is -Z; avatar forward is +Z.
-    // Keep the previously validated body alignment.
-
     const viewYaw =
       this.xrRig.rotation.y + headYaw;
 
+    // Camera -Z matches avatar +Z.
     this.player.setCapsuleYaw(
       (viewYaw + Math.PI) * DEG
     );
@@ -1235,14 +1043,11 @@ export class Scene {
   }
 
   // --------------------------------------------------
-  // VR headset tracking
+  // VR headset
   // --------------------------------------------------
 
   updateVR(delta, frame) {
-    if (
-      !frame ||
-      !this.renderer.xr.isPresenting
-    ) {
+    if (!frame || !this.renderer.xr.isPresenting) {
       return;
     }
 
@@ -1257,14 +1062,7 @@ export class Scene {
       frame.getViewerPose(referenceSpace);
 
     if (!viewerPose) {
-      // Controller tracking is handled independently,
-      // even if the viewer pose is temporarily missing.
-      this.updateVRHands(
-        delta,
-        frame,
-        referenceSpace
-      );
-
+      this.updateVRHands(delta, frame, referenceSpace);
       return;
     }
 
@@ -1283,14 +1081,14 @@ export class Scene {
       head.orientation.w
     );
 
+    this.vrHeadQuaternion.copy(
+      this.trackedQuaternion
+    );
+
     this.headEuler.setFromQuaternion(
       this.trackedQuaternion,
       'YXZ'
     );
-
-    // --------------------------------------------------
-    // Initial alignment and Quest recentering
-    // --------------------------------------------------
 
     if (this.vrNeedsAlignment) {
       this.xrRig.rotation.y =
@@ -1306,24 +1104,14 @@ export class Scene {
         );
 
       this.xrRig.position.x =
-        this.player.position.x -
-        this.afterTurn.x;
+        this.player.position.x - this.afterTurn.x;
 
       this.xrRig.position.z =
-        this.player.position.z -
-        this.afterTurn.z;
+        this.player.position.z - this.afterTurn.z;
 
-      this.xrRig.updateWorldMatrix(
-        true,
-        false
-      );
-
+      this.xrRig.updateWorldMatrix(true, false);
       this.vrNeedsAlignment = false;
     }
-
-    // --------------------------------------------------
-    // Movement
-    // --------------------------------------------------
 
     const walking = this.updateVRLocomotion(
       delta,
@@ -1332,10 +1120,6 @@ export class Scene {
     );
 
     this.updateLocomotionAnimation(walking);
-
-    // --------------------------------------------------
-    // Headset position
-    // --------------------------------------------------
 
     this.headWorld.copy(this.headLocal);
     this.xrRig.localToWorld(this.headWorld);
@@ -1349,18 +1133,11 @@ export class Scene {
       { clampY: false }
     );
 
-    // Body yaw is already aligned to the headset.
-    // Do not apply headset yaw again to the head bone.
-
     this.player.setEyesRotation({
       x: this.headEuler.x * DEG,
       y: 0,
       z: this.headEuler.z * DEG
     });
-
-    // --------------------------------------------------
-    // Controllers
-    // --------------------------------------------------
 
     this.updateVRHands(
       delta,
@@ -1370,24 +1147,21 @@ export class Scene {
   }
 
   // --------------------------------------------------
-  // VR controller and wrist tracking
+  // Controller tracking and IK targets
   // --------------------------------------------------
 
   updateVRHands(delta, frame, referenceSpace) {
-    const tracked = {
-      left: false,
-      right: false
-    };
-
-    const poseState = [];
-
-    this.vrFrameCount++;
+    const tracked = { left: false, right: false };
 
     this.xrRig.updateWorldMatrix(true, true);
-
     this.xrRig.getWorldQuaternion(
       this.rigQuaternion
     );
+
+    const avatarInverse =
+      this.avatar.origin.getWorldQuaternion(
+        new THREE.Quaternion()
+      ).invert();
 
     for (const source of frame.session.inputSources) {
       const side = source.handedness;
@@ -1396,15 +1170,9 @@ export class Scene {
         continue;
       }
 
-      // IMPORTANT:
-      // Use only gripSpace for wrist orientation.
-      //
-      // targetRaySpace is intended for pointing at
-      // objects and does not match the physical grip.
+      let valid = false;
 
-      const grip =
-        this.vrGripsBySide[side];
-
+      // Grip pose, never targetRaySpace for hand IK.
       const pose = source.gripSpace
         ? frame.getPose(
           source.gripSpace,
@@ -1413,9 +1181,6 @@ export class Scene {
         : null;
 
       if (pose) {
-        // Read the current WebXR grip pose directly.
-        // No button or visibility event is required.
-
         const transform = pose.transform;
 
         this.trackedPosition.set(
@@ -1435,50 +1200,53 @@ export class Scene {
             transform.orientation.z,
             transform.orientation.w
           )
-          .premultiply(this.rigQuaternion);
+          .premultiply(this.rigQuaternion)
+          .normalize();
 
-        tracked[side] = true;
+        valid = true;
+      } else {
+        const grip = this.vrGripsBySide[side];
 
-      } else if (grip && grip.visible) {
-        // Fall back to the native Three.js controller
-        // grip if it has a valid tracked transform.
+        if (grip?.visible) {
+          grip.getWorldPosition(
+            this.trackedPosition
+          );
 
-        grip.updateWorldMatrix(true, false);
+          grip.getWorldQuaternion(
+            this.trackedQuaternion
+          );
 
-        grip.getWorldPosition(
-          this.trackedPosition
-        );
-
-        grip.getWorldQuaternion(
-          this.trackedQuaternion
-        );
-
-        tracked[side] = true;
+          valid = true;
+        }
       }
 
-      poseState.push({
-        side,
-        hasGripSpace: Boolean(
-          source.gripSpace
-        ),
-        hasPose: Boolean(pose),
-        nativeGripVisible: Boolean(
-          grip?.visible
+      if (!valid) continue;
+
+      tracked[side] = true;
+
+      // Raw controller quaternion in avatar coordinates.
+      const gripAvatar = avatarInverse.clone()
+        .multiply(this.trackedQuaternion)
+        .normalize();
+
+      // Current IK target in avatar coordinates.
+      const wristAvatar = gripAvatar.clone()
+        .multiply(
+          this.vrHandRotationOffsets[side]
         )
-      });
+        .normalize();
 
-      if (!tracked[side]) continue;
+      const localPosition =
+        this.avatar.origin.worldToLocal(
+          this.trackedPosition.clone()
+        );
 
-      // --------------------------------------------------
-      // Quest grip -> Mixamo wrist orientation
-      // --------------------------------------------------
-      //
-      // Quaternion multiplication order matters:
-      //
-      // wristWorld = gripWorld * wristLocalOffset
-      //
-      // The 180-degree yaw correction is applied in
-      // controller-local space, not world space.
+      this.vrGripSamples[side] = {
+        gripAvatar,
+        wristAvatar,
+        positionAvatar: localPosition,
+        actualBoneAvatar: null
+      };
 
       this.trackedQuaternion
         .multiply(
@@ -1501,10 +1269,6 @@ export class Scene {
       }
     }
 
-    // --------------------------------------------------
-    // Hand IK activation
-    // --------------------------------------------------
-
     for (const side of ['left', 'right']) {
       this.vrHandGrace[side] = tracked[side]
         ? 0.25
@@ -1513,8 +1277,7 @@ export class Scene {
           this.vrHandGrace[side] - delta
         );
 
-      const enabled =
-        this.vrHandGrace[side] > 0;
+      const enabled = this.vrHandGrace[side] > 0;
 
       if (
         this.avatar.armIKEnabled[side] !== enabled
@@ -1524,96 +1287,417 @@ export class Scene {
           enabled
         );
       }
-    }
 
-    // --------------------------------------------------
-    // XR startup diagnostics
-    // --------------------------------------------------
-
-    // Report changes only, not every frame.
-
-    const status = JSON.stringify({
-      visibility: frame.session.visibilityState,
-      sources: poseState
-    });
-
-    if (status !== this.vrLastInputState) {
-      this.vrLastInputState = status;
-
-      console.info(
-        '[VR] Tracking state:',
-        JSON.parse(status)
-      );
-    }
-
-    // One warning if controller poses remain missing
-    // after approximately 120 XR frames.
-
-    if (
-      this.vrFrameCount === 120 &&
-      (
-        !this.vrHasTrackedHands.left ||
-        !this.vrHasTrackedHands.right
-      )
-    ) {
-      console.warn(
-        '[VR] Controller tracking incomplete on entry.',
-        {
-          visibility:
-            frame.session.visibilityState,
-
-          inputSources:
-            frame.session.inputSources.length,
-
-          leftReady:
-            this.vrHasTrackedHands.left,
-
-          rightReady:
-            this.vrHasTrackedHands.right
-        }
-      );
+      if (!tracked[side]) {
+        this.vrGripSamples[side] = null;
+      }
     }
   }
 
   // --------------------------------------------------
-  // Sidebar utilities
+  // Actual hand-bone orientation after IK
+  // --------------------------------------------------
+
+  refreshVRWristBones() {
+    const bodyInverse =
+      this.avatar.origin.getWorldQuaternion(
+        new THREE.Quaternion()
+      ).invert();
+
+    for (const side of ['left', 'right']) {
+      const sample = this.vrGripSamples[side];
+      const bone = this.vrHandBones[side];
+
+      if (!sample || !bone) continue;
+
+      const boneWorld =
+        bone.getWorldQuaternion(
+          new THREE.Quaternion()
+        );
+
+      sample.actualBoneAvatar =
+        bodyInverse.clone()
+          .multiply(boneWorld)
+          .normalize();
+    }
+  }
+
+  // --------------------------------------------------
+  // Quaternion formatting
+  // --------------------------------------------------
+
+  wristEulerDegrees(quaternion) {
+    const euler = new THREE.Euler()
+      .setFromQuaternion(
+        quaternion,
+        VR_EULER_ORDER
+      );
+
+    return [euler.x, euler.y, euler.z].map(
+      radians => {
+        let angle = THREE.MathUtils.radToDeg(
+          radians
+        );
+
+        angle =
+          ((angle + 180) % 360 + 360) % 360 - 180;
+
+        return Number(angle.toFixed(1));
+      }
+    );
+  }
+
+  wristQuaternionArray(quaternion) {
+    return quaternion.toArray().map(
+      value => Number(value.toFixed(6))
+    );
+  }
+
+  // --------------------------------------------------
+  // Trigger capture: comfort / visual target
+  // --------------------------------------------------
+
+  captureVRWrist(side) {
+    if (this.mode !== 'vr') return;
+    if (side !== 'left' && side !== 'right') return;
+
+    const sample = this.vrGripSamples[side];
+
+    if (!sample) {
+      console.warn(
+        `[VR CALIBRATION] ${side}: no grip pose yet`
+      );
+      return;
+    }
+
+    const entry = this.vrCalibration[side];
+    let stage;
+
+    const clonePose = () => ({
+      grip: sample.gripAvatar.clone(),
+      wrist: sample.wristAvatar.clone(),
+      actualBone:
+        sample.actualBoneAvatar?.clone() ?? null,
+      position: sample.positionAvatar.clone()
+    });
+
+    if (!entry.comfort || entry.visual) {
+      // First trigger press (or a new attempt).
+      entry.comfort = clonePose();
+      entry.visual = null;
+      entry.result = null;
+
+      stage = 'COMFORT';
+    } else {
+      // Second trigger press: desired visual wrist.
+      entry.visual = clonePose();
+
+      // New offset = inverse(comfort grip)
+      //              * desired wrist target.
+      //
+      // The desired wrist target is obtained using
+      // the awkward controller pose and the current
+      // hand rotation offset.
+
+      const offset = entry.comfort.grip
+        .clone()
+        .invert()
+        .multiply(entry.visual.wrist)
+        .normalize();
+
+      entry.result = {
+        offsetQuaternion: offset,
+        rotationDegrees:
+          this.wristEulerDegrees(offset)
+      };
+
+      stage = 'VISUAL_TARGET';
+    }
+
+    this.vrHUDClock = 1;
+
+    const reportPose = pose => pose ? {
+      rawGripEulerDegrees:
+        this.wristEulerDegrees(pose.grip),
+
+      rawGripQuaternion:
+        this.wristQuaternionArray(pose.grip),
+
+      wristTargetEulerDegrees:
+        this.wristEulerDegrees(pose.wrist),
+
+      wristTargetQuaternion:
+        this.wristQuaternionArray(pose.wrist),
+
+      actualBoneEulerDegrees: pose.actualBone
+        ? this.wristEulerDegrees(pose.actualBone)
+        : null,
+
+      actualBoneQuaternion: pose.actualBone
+        ? this.wristQuaternionArray(pose.actualBone)
+        : null,
+
+      positionAvatar: pose.position
+        .toArray()
+        .map(v => Number(v.toFixed(4)))
+    } : null;
+
+    const report = {
+      side,
+      captured: stage,
+      eulerOrder: VR_EULER_ORDER,
+
+      originalOffsetDegrees:
+        this.vrHandRotationDegrees[side],
+
+      comfort: reportPose(entry.comfort),
+      visualTarget: reportPose(entry.visual),
+
+      recommendedOffsetDegrees:
+        entry.result?.rotationDegrees ?? null,
+
+      recommendedOffsetQuaternion:
+        entry.result
+          ? this.wristQuaternionArray(
+            entry.result.offsetQuaternion
+          )
+          : null
+    };
+
+    console.log(
+      `=== VR WRIST CALIBRATION ${side.toUpperCase()} ===\n` +
+      JSON.stringify(report, null, 2) +
+      '\n=== END VR WRIST CALIBRATION ==='
+    );
+  }
+
+  // --------------------------------------------------
+  // 3D text panel displayed in the headset
+  // --------------------------------------------------
+
+  createVRCalibrationHUD() {
+    this.vrHUDCanvas = document.createElement(
+      'canvas'
+    );
+
+    this.vrHUDCanvas.width = 1280;
+    this.vrHUDCanvas.height = 800;
+
+    this.vrHUDContext =
+      this.vrHUDCanvas.getContext('2d');
+
+    this.vrHUDTexture = new THREE.CanvasTexture(
+      this.vrHUDCanvas
+    );
+
+    this.vrHUDTexture.colorSpace =
+      THREE.SRGBColorSpace;
+
+    this.vrHUD = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.2, 0.75),
+      new THREE.MeshBasicMaterial({
+        map: this.vrHUDTexture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      })
+    );
+
+    this.vrHUD.name = 'VRWristCalibrationHUD';
+    this.vrHUD.frustumCulled = false;
+    this.vrHUD.renderOrder = 10000;
+    this.vrHUD.visible = false;
+
+    this.xrRig.add(this.vrHUD);
+
+    this.drawVRCalibrationHUD();
+  }
+
+  updateVRCalibrationHUD(delta) {
+    if (!this.vrHUD.visible) return;
+
+    // Move with the headset, not with the avatar head.
+    this.vrHUD.position.copy(
+      this.headLocal
+    ).add(
+      this.vrHUDOffset.clone()
+        .applyQuaternion(this.vrHeadQuaternion)
+    );
+
+    this.vrHUD.quaternion.copy(
+      this.vrHeadQuaternion
+    );
+
+    this.vrHUDClock += delta;
+
+    if (this.vrHUDClock >= 0.12) {
+      this.vrHUDClock = 0;
+      this.drawVRCalibrationHUD();
+    }
+  }
+
+  drawVRCalibrationHUD() {
+    const ctx = this.vrHUDContext;
+    if (!ctx) return;
+
+    const { width, height } = this.vrHUDCanvas;
+
+    ctx.clearRect(0, 0, width, height);
+
+    ctx.fillStyle = 'rgba(10, 16, 29, 0.88)';
+    ctx.fillRect(0, 0, width, height);
+
+    const write = (
+      text,
+      x,
+      y,
+      color = '#e7f0ff',
+      size = 29
+    ) => {
+      ctx.font = `${size}px monospace`;
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, y);
+    };
+
+    const fmt = values => values
+      .map(value => value.toFixed(1).padStart(6))
+      .join(' ');
+
+    write(
+      'VR WRIST CALIBRATION | YXZ degrees',
+      38, 57, '#80ceff', 38
+    );
+
+    write(
+      'TRIGGER: 1 = NATURAL  2 = VISUAL MATCH  3 = RESTART',
+      38, 105, '#f1d08a', 26
+    );
+
+    write(
+      'GRIP: raw XR | WRIST: IK target | BONE: actual hand',
+      38, 143, '#aac1da', 24
+    );
+
+    const drawHand = (side, top) => {
+      const label = side === 'left'
+        ? 'LEFT'
+        : 'RIGHT';
+
+      const sample = this.vrGripSamples[side];
+      const state = this.vrCalibration[side];
+
+      const color = side === 'left'
+        ? '#ffcb84'
+        : '#82e1ff';
+
+      write(
+        `${label} CONTROLLER`,
+        38, top, color, 34
+      );
+
+      if (!sample) {
+        write(
+          'Waiting for gripSpace tracking...',
+          38, top + 43, '#ff9090', 28
+        );
+      } else {
+        write(
+          'GRIP  X Y Z : ' +
+          fmt(this.wristEulerDegrees(
+            sample.gripAvatar
+          )),
+          38, top + 43
+        );
+
+        write(
+          'WRIST X Y Z : ' +
+          fmt(this.wristEulerDegrees(
+            sample.wristAvatar
+          )),
+          38, top + 82
+        );
+
+        if (sample.actualBoneAvatar) {
+          write(
+            'BONE  X Y Z : ' +
+            fmt(this.wristEulerDegrees(
+              sample.actualBoneAvatar
+            )),
+            38, top + 120, '#c2e0f4', 28
+          );
+        }
+      }
+
+      const capture = !state.comfort
+        ? 'CAPTURE NEXT: NATURAL'
+        : !state.visual
+          ? 'CAPTURE NEXT: VISUAL MATCH'
+          : 'CAPTURE COMPLETE - PRESS AGAIN TO RESTART';
+
+      write(
+        capture,
+        38, top + 160, '#b4f1b1', 24
+      );
+
+      if (state.result) {
+        write(
+          'NEW OFFSET [X,Y,Z]: ' +
+          fmt(state.result.rotationDegrees),
+          38, top + 195, '#89ffb5', 29
+        );
+      } else {
+        write(
+          'NEW OFFSET: --',
+          38, top + 195, '#9ab0c8', 25
+        );
+      }
+    };
+
+    ctx.strokeStyle =
+      'rgba(180, 200, 240, 0.35)';
+
+    ctx.beginPath();
+    ctx.moveTo(38, 415);
+    ctx.lineTo(width - 38, 415);
+    ctx.stroke();
+
+    drawHand('left', 185);
+    drawHand('right', 468);
+
+    write(
+      'Full precision / quaternions: browser console',
+      38, height - 24, '#a7bdcf', 23
+    );
+
+    this.vrHUDTexture.needsUpdate = true;
+  }
+
+  // --------------------------------------------------
+  // Sidebar helpers
   // --------------------------------------------------
 
   createSection(title) {
-    const section =
-      document.createElement('section');
-
-    const heading =
-      document.createElement('h2');
+    const section = document.createElement('section');
+    const heading = document.createElement('h2');
 
     heading.textContent = title;
-
     section.appendChild(heading);
     this.controlsContainer.appendChild(section);
 
     return section;
   }
 
-  createCheckbox(
-    section,
-    label,
-    checked,
-    onChange
-  ) {
-    const wrapper =
-      document.createElement('label');
-
+  createCheckbox(section, label, checked, onChange) {
+    const wrapper = document.createElement('label');
     wrapper.className = 'checkbox-field';
 
-    const input =
-      document.createElement('input');
-
+    const input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = checked;
 
-    const span =
-      document.createElement('span');
-
+    const span = document.createElement('span');
     span.textContent = label;
 
     input.addEventListener(
@@ -1638,19 +1722,14 @@ export class Scene {
     axisSettings = {},
     onChange
   }) {
-    const group =
-      document.createElement('div');
-
+    const group = document.createElement('div');
     group.className = 'field-group';
 
-    const title =
-      document.createElement('span');
-
+    const title = document.createElement('span');
     title.className = 'field-title';
     title.textContent = label;
 
-    const row =
-      document.createElement('div');
+    const row = document.createElement('div');
 
     row.className = axes.length === 1
       ? 'vector-inputs single'
@@ -1659,38 +1738,23 @@ export class Scene {
     const inputs = {};
 
     for (const axis of axes) {
-      const settings =
-        axisSettings[axis] || {};
+      const settings = axisSettings[axis] || {};
+      const axisStep = settings.step ?? step;
+      const axisMin = settings.min ?? min;
+      const axisMax = settings.max ?? max;
 
-      const axisStep =
-        settings.step ?? step;
-
-      const axisMin =
-        settings.min ?? min;
-
-      const axisMax =
-        settings.max ?? max;
-
-      const field =
-        document.createElement('label');
-
+      const field = document.createElement('label');
       field.className = 'axis-field';
 
-      const caption =
-        document.createElement('span');
-
+      const caption = document.createElement('span');
       caption.className = 'axis-label';
       caption.textContent = settings.label ?? axis;
 
-      const input =
-        document.createElement('input');
+      const input = document.createElement('input');
 
       input.type = 'number';
       input.step = String(axisStep);
-
-      input.value = this.formatNumber(
-        values[axis]
-      );
+      input.value = this.formatNumber(values[axis]);
 
       if (axisMin !== undefined) {
         input.min = String(axisMin);
@@ -1707,16 +1771,14 @@ export class Scene {
 
         const result = onChange(axis, value);
 
-        const actual =
-          Number.isFinite(result)
-            ? result
-            : value;
+        const actual = Number.isFinite(result)
+          ? result
+          : value;
 
         values[axis] = actual;
 
         if (normalizeInput) {
-          input.value =
-            this.formatNumber(actual);
+          input.value = this.formatNumber(actual);
         }
       };
 
@@ -1737,7 +1799,6 @@ export class Scene {
           input.value = this.formatNumber(
             values[axis]
           );
-
         } else {
           apply(input.valueAsNumber, true);
         }
@@ -1775,7 +1836,6 @@ export class Scene {
 
     return {
       inputs,
-
       sync: (
         updated,
         { preserveActive = false } = {}
@@ -1785,8 +1845,7 @@ export class Scene {
 
           if (
             !preserveActive ||
-            document.activeElement !==
-            inputs[axis]
+            document.activeElement !== inputs[axis]
           ) {
             inputs[axis].value =
               this.formatNumber(updated[axis]);
@@ -1797,46 +1856,29 @@ export class Scene {
   }
 
   formatNumber(value) {
-    return String(
-      Number(value.toFixed(4))
-    );
+    return String(Number(value.toFixed(4)));
   }
 
-  // --------------------------------------------------
-  // Animation controls
-  // --------------------------------------------------
-
   createAnimationControls(section, state) {
-    const group =
-      document.createElement('div');
-
+    const group = document.createElement('div');
     group.className = 'field-group';
 
-    const title =
-      document.createElement('span');
-
+    const title = document.createElement('span');
     title.className = 'field-title';
     title.textContent = 'Animation';
 
-    const row =
-      document.createElement('div');
-
+    const row = document.createElement('div');
     row.className = 'animation-row';
 
-    const select =
-      document.createElement('select');
-
+    const select = document.createElement('select');
     select.className = 'animation-select';
 
     for (const name of state.available) {
-      const option =
-        document.createElement('option');
+      const option = document.createElement('option');
 
       option.value = name;
-
       option.textContent =
-        name[0].toUpperCase() +
-        name.slice(1);
+        name[0].toUpperCase() + name.slice(1);
 
       select.appendChild(option);
     }
@@ -1846,23 +1888,19 @@ export class Scene {
     select.addEventListener(
       'change',
       () => {
-        this.avatar.setAnimation(
-          select.value
-        );
+        this.avatar.setAnimation(select.value);
       }
     );
 
-    const button =
-      document.createElement('button');
+    const button = document.createElement('button');
 
     button.className = 'animation-button';
     button.type = 'button';
 
     const refresh = () => {
-      button.textContent =
-        this.avatar.isPlaying()
-          ? 'Pause'
-          : 'Play';
+      button.textContent = this.avatar.isPlaying()
+        ? 'Pause'
+        : 'Play';
     };
 
     button.addEventListener(
@@ -1871,7 +1909,6 @@ export class Scene {
         this.avatar.setPlaying(
           !this.avatar.isPlaying()
         );
-
         refresh();
       }
     );
@@ -1882,10 +1919,6 @@ export class Scene {
     group.append(title, row);
     section.appendChild(group);
   }
-
-  // --------------------------------------------------
-  // Capsule-dependent debug fields
-  // --------------------------------------------------
 
   syncCapsuleDependentFields() {
     const state = this.player.getControlState();
@@ -1921,8 +1954,6 @@ export class Scene {
 
     const state = this.player.getControlState();
 
-    // View.
-
     const view = this.createSection('View');
 
     this.createCheckbox(
@@ -1949,14 +1980,10 @@ export class Scene {
         this.player.setDisplayCapsule(visible)
     );
 
-    // Animation.
-
     this.createAnimationControls(
       this.createSection('Animation'),
       state.animation
     );
-
-    // Capsule.
 
     const capsule = this.createSection(
       'Player capsule'
@@ -1966,25 +1993,17 @@ export class Scene {
       this.createVectorInput({
         section: capsule,
         label: 'Capsule parameters',
-
         values: state.capsule,
         axes: ['height', 'radius', 'yaw'],
 
         axisSettings: {
-          height: {
-            step: 0.01,
-            min: 0.3
-          },
-
+          height: { step: 0.01, min: 0.3 },
           radius: {
             step: 0.01,
             min: 0.05,
             max: state.capsule.height / 2
           },
-
-          yaw: {
-            step: 1
-          }
+          yaw: { step: 1 }
         },
 
         onChange: (axis, value) => {
@@ -2008,8 +2027,6 @@ export class Scene {
         }
       });
 
-    // Avatar eyes.
-
     const eyes = this.createSection(
       'Avatar eyes'
     );
@@ -2018,7 +2035,6 @@ export class Scene {
       this.createVectorInput({
         section: eyes,
         label: 'Position (world)',
-
         values: state.eyes.position,
 
         onChange: (axis, value) =>
@@ -2036,7 +2052,6 @@ export class Scene {
     this.createVectorInput({
       section: eyes,
       label: 'Head rotation (degrees)',
-
       values: state.eyes.rotation,
       step: 1,
 
@@ -2055,8 +2070,6 @@ export class Scene {
         this.player.setHeadOverride(enabled)
     );
 
-    // Hands.
-
     for (const side of ['left', 'right']) {
       const hand = this.createSection(
         `${side === 'left' ? 'Left' : 'Right'} hand`
@@ -2066,7 +2079,6 @@ export class Scene {
         hand,
         'Enable arm IK',
         state.ik[side],
-
         enabled =>
           this.avatar.setArmIKEnabled(
             side,
@@ -2077,7 +2089,6 @@ export class Scene {
       this.createVectorInput({
         section: hand,
         label: 'Position (origin local)',
-
         values: state.hands[side].position,
 
         onChange: (axis, value) =>
@@ -2090,7 +2101,6 @@ export class Scene {
       this.createVectorInput({
         section: hand,
         label: 'Pole (origin local)',
-
         values: state.hands[side].pole,
 
         onChange: (axis, value) =>
@@ -2103,7 +2113,6 @@ export class Scene {
       this.createVectorInput({
         section: hand,
         label: 'Rotation (degrees)',
-
         values: state.hands[side].rotation,
         step: 1,
 
@@ -2115,8 +2124,6 @@ export class Scene {
       });
     }
 
-    // Legs.
-
     for (const side of ['left', 'right']) {
       const leg = this.createSection(
         `${side === 'left' ? 'Left' : 'Right'} leg`
@@ -2125,7 +2132,6 @@ export class Scene {
       this.createVectorInput({
         section: leg,
         label: 'Pole (origin local)',
-
         values: state.legs[side].pole,
 
         onChange: (axis, value) =>
@@ -2138,7 +2144,7 @@ export class Scene {
   }
 
   // --------------------------------------------------
-  // Animation loop
+  // Rendering
   // --------------------------------------------------
 
   animate(frame) {
@@ -2161,6 +2167,14 @@ export class Scene {
       this.avatar.update(delta);
     }
 
+    if (this.mode === 'vr') {
+      // Read actual bone pose after IK.
+      this.refreshVRWristBones();
+
+      // Draw updated controller and wrist orientations.
+      this.updateVRCalibrationHUD(delta);
+    }
+
     if (this.mode === 'debug') {
       this.orbit.update();
     }
@@ -2173,16 +2187,9 @@ export class Scene {
     );
   }
 
-  // --------------------------------------------------
-  // Resize
-  // --------------------------------------------------
-
   resize() {
-    const width =
-      this.viewport.clientWidth;
-
-    const height =
-      this.viewport.clientHeight;
+    const width = this.viewport.clientWidth;
+    const height = this.viewport.clientHeight;
 
     if (!width || !height) return;
 
@@ -2195,10 +2202,7 @@ export class Scene {
     }
 
     if (!this.renderer.xr.isPresenting) {
-      this.renderer.setSize(
-        width,
-        height
-      );
+      this.renderer.setSize(width, height);
     }
   }
 }
