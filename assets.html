@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1.0">
+        <title>Avatar Assets</title>
+        <link rel="stylesheet" href="./style.css">
+    </head>
+
+    <body class="view-body">
+        <main class="viewport">
+            <canvas id="scene-canvas" aria-label="3D asset editor"></canvas>
+        </main>
+
+        <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
+
+        <div class="toolbar-row">
+            <div class="floating-toolbar">
+                <button id="import-asset" class="primary" type="button" title="Import FBX asset">
+                    <span class="icon icon-upload" aria-hidden="true"></span>
+                    <span>Import Asset</span>
+                </button>
+
+                <input id="asset-file" type="file" accept=".fbx" multiple hidden>
+
+                <div id="asset-select-wrapper" class="select-wrapper" hidden>
+                    <select id="asset-select" aria-label="Selected asset"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+
+                <button id="remove-asset" type="button" title="Remove selected asset" hidden>
+                    <span class="icon icon-remove" aria-hidden="true"></span>
+                    <span>Remove Asset</span>
+                </button>
+
+                <button id="reset-assets" type="button" title="Remove all assets" aria-label="Reset all assets" hidden>
+                    <span class="icon icon-reset" aria-hidden="true"></span>
+                </button>
+
+                <button id="rename-asset" type="button" title="Rename selected asset" aria-label="Rename asset" hidden>
+                    <span class="icon icon-name" aria-hidden="true"></span>
+                </button>
+            </div>
+        </div>
+
+        <script type="module" src="./views/assets.js"></script>
+    </body>
+
+</html>

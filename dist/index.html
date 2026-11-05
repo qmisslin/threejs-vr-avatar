@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1.0">
+        <title>Avatar Viewer</title>
+
+        <style>
+            body {
+                margin: 0;
+                overflow: hidden;
+            }
+
+            canvas {
+                display: block;
+            }
+        </style>
+
+        <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+        }
+    }
+    </script>
+    </head>
+
+    <body>
+        <script type="module">
+            import * as THREE from "three";
+            import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x202020);
+
+            const camera = new THREE.PerspectiveCamera(
+                50,
+                window.innerWidth / window.innerHeight,
+                0.01,
+                100
+            );
+
+            camera.position.set(0, 1.1, 3);
+            camera.lookAt(0, 0.9, 0);
+
+            const renderer = new THREE.WebGLRenderer({
+                antialias: true
+            });
+
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 0.9, 0);
+            controls.enableDamping = false;
+            controls.enablePan = true;
+            controls.enableZoom = true;
+            controls.minDistance = 0.5;
+            controls.maxDistance = 10;
+
+            controls.update();
+
+            scene.add(new THREE.HemisphereLight(
+                0xffffff,
+                0x444444,
+                2
+            ));
+
+            const light = new THREE.DirectionalLight(
+                0xffffff,
+                2
+            );
+
+            light.position.set(2, 4, 3);
+            scene.add(light);
+
+            window.addEventListener("resize", () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            window.THREE = THREE;
+            window.scene = scene;
+            window.camera = camera;
+            window.renderer = renderer;
+
+            await import("./main.js");
+        </script>
+    </body>
+
+</html>

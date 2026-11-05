@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Avatar Creator</title>
+        <link rel="stylesheet" href="./style.css">
+
+        <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+        }
+    }
+    </script>
+    </head>
+
+    <body class="app-shell">
+        <iframe id="view-frame" title="Avatar editor" allow="fullscreen"></iframe>
+
+        <nav id="navigation" class="navigation" aria-label="Editor navigation">
+            <button id="nav-loader" class="navigation-button is-active" type="button" title="Loader"
+                aria-label="Loader">
+                <span class="icon icon-page-loader"></span>
+            </button>
+
+            <button id="nav-ik" class="navigation-button" type="button" title="Inverse kinematics"
+                aria-label="Inverse kinematics">
+                <span class="icon icon-page-ik"></span>
+            </button>
+
+            <button id="nav-view" class="navigation-button" type="button" title="First person view"
+                aria-label="First person view">
+                <span class="icon icon-page-view"></span>
+            </button>
+
+            <button id="nav-assets" class="navigation-button" type="button" title="Assets" aria-label="Assets">
+                <span class="icon icon-page-assets"></span>
+            </button>
+
+            <button id="nav-anchors" class="navigation-button" type="button" title="Anchors" aria-label="Anchors">
+                <span class="icon icon-page-anchor"></span>
+            </button>
+
+            <button id="nav-hands" class="navigation-button" type="button" title="Hand poses" aria-label="Hand poses">
+                <span class="icon icon-page-hand"></span>
+            </button>
+
+            <button id="nav-export" class="navigation-button" type="button" title="Export" aria-label="Export">
+                <span class="icon icon-page-save"></span>
+            </button>
+        </nav>
+
+        <script type="module" src="./views/main.js"></script>
+    </body>
+
+</html>

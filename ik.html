@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Avatar Inverse Kinematics</title>
+        <link rel="stylesheet" href="./style.css">
+    </head>
+
+    <body class="view-body">
+        <main id="viewport" class="viewport">
+            <canvas id="scene-canvas" aria-label="Inverse kinematics viewport"></canvas>
+        </main>
+
+        <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
+
+        <div class="toolbar-row">
+            <div class="floating-toolbar">
+                <button id="reset-ik" type="button" title="Reset inverse kinematics">
+                    <span class="icon icon-reset"></span>
+                    <span>Reset IK</span>
+                </button>
+            </div>
+
+            <div id="animation-toolbar" class="floating-toolbar animation-toolbar" hidden>
+                <div class="select-wrapper">
+                    <select id="animation-select" aria-label="Current animation"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+
+                <button id="toggle-animation" class="icon-button" type="button" aria-label="Pause animation"
+                    title="Play / Pause">
+                    <span id="animation-icon" class="icon icon-pause"></span>
+                </button>
+            </div>
+        </div>
+
+        <script type="module" src="./views/ik.js"></script>
+    </body>
+
+</html>

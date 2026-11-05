@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1.0">
+        <title>Avatar Anchors</title>
+        <link rel="stylesheet" href="./style.css">
+    </head>
+
+    <body class="view-body">
+        <main class="viewport">
+            <canvas id="scene-canvas" aria-label="3D anchor editor"></canvas>
+        </main>
+
+        <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
+
+        <div class="toolbar-row">
+            <div class="floating-toolbar">
+                <button id="add-anchor" class="primary" type="button" title="Add anchor">
+                    <span class="icon icon-create" aria-hidden="true"></span>
+                    <span>Add</span>
+                </button>
+
+                <div id="anchor-select-wrapper" class="select-wrapper" hidden>
+                    <select id="anchor-select" aria-label="Selected anchor"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+
+                <button id="center-anchor" type="button" title="Center view on selected anchor"
+                    aria-label="Center view on selected anchor" hidden>
+                    <span class="icon icon-center" aria-hidden="true"></span>
+                </button>
+
+                <div id="bone-select-wrapper" class="select-wrapper" hidden>
+                    <select id="bone-select" aria-label="Anchor parent bone"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+
+                <button id="mirror-anchor" type="button" title="Mirror anchor" aria-label="Mirror anchor" hidden>
+                    <span class="icon icon-reflect" aria-hidden="true"></span>
+                </button>
+
+                <button id="copy-anchor" type="button" title="Copy anchor" aria-label="Copy anchor" hidden>
+                    <span class="icon icon-copy" aria-hidden="true"></span>
+                </button>
+
+                <button id="rename-anchor" type="button" title="Rename anchor" aria-label="Rename anchor" hidden>
+                    <span class="icon icon-name" aria-hidden="true"></span>
+                </button>
+
+                <button id="remove-anchor" type="button" title="Remove anchor" aria-label="Remove anchor" hidden>
+                    <span class="icon icon-remove" aria-hidden="true"></span>
+                </button>
+            </div>
+
+            <div id="animation-toolbar" class="floating-toolbar animation-toolbar" hidden>
+                <div id="asset-select-wrapper" class="select-wrapper" hidden>
+                    <select id="asset-select" aria-label="Preview asset"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+                
+                <div class="select-wrapper">
+                    <select id="animation-select" aria-label="Current animation"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+                
+                <button id="toggle-animation" class="icon-button" type="button" aria-label="Pause animation" title="Play / Pause">
+                    <span id="animation-icon" class="icon icon-pause"></span>
+                </button>
+            </div>
+        </div>
+
+        <script type="module" src="./views/anchors.js"></script>
+    </body>
+
+</html>

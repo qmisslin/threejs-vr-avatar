@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Avatar Camera</title>
+        <link rel="stylesheet" href="./style.css">
+    </head>
+
+    <body class="view-body">
+        <main class="view-split">
+            <section class="view-panel" aria-label="Avatar camera editor">
+                <div class="viewport">
+                    <canvas id="avatar-canvas" aria-label="Avatar editor viewport"></canvas>
+                </div>
+
+                <div class="view-panel-label">
+                    Avatar
+                </div>
+            </section>
+
+            <section class="view-panel" aria-label="First person camera">
+                <div class="viewport">
+                    <canvas id="camera-canvas" aria-label="First person camera viewport"></canvas>
+                </div>
+
+                <div class="view-panel-label">
+                    First Person
+                </div>
+            </section>
+        </main>
+
+        <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
+
+        <div class="toolbar-row">
+            <div class="floating-toolbar">
+                <button id="reset-camera" type="button" title="Reset camera">
+                    <span class="icon icon-reset"></span>
+                    <span>Reset Camera</span>
+                </button>
+            </div>
+
+            <div id="animation-toolbar" class="floating-toolbar animation-toolbar" hidden>
+                <div class="select-wrapper">
+                    <select id="animation-select" aria-label="Current animation"></select>
+
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+
+                <button id="toggle-animation" class="icon-button" type="button" aria-label="Pause animation"
+                    title="Play / Pause">
+                    <span id="animation-icon" class="icon icon-pause"></span>
+                </button>
+            </div>
+        </div>
+
+        <script type="module" src="./views/view.js"></script>
+    </body>
+
+</html>

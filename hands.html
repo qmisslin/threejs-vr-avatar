@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1.0">
+        <title>Avatar Hand Pose</title>
+        <link rel="stylesheet" href="./style.css">
+    </head>
+
+    <body class="view-body">
+        <main class="viewport">
+            <canvas id="scene-canvas" aria-label="3D hand pose editor"></canvas>
+        </main>
+
+        <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
+
+        <div class="toolbar-row">
+            <div class="floating-toolbar">
+                <button id="add-pose" class="primary" type="button" title="Add pose">
+                    <span class="icon icon-create" aria-hidden="true"></span>
+                    <span>Add Pose</span>
+                </button>
+
+                <button id="load-pose" type="button" title="Load hand poses from GLB">
+                    <span class="icon icon-open" aria-hidden="true"></span>
+                    <span>Load</span>
+                </button>
+                
+                <input id="load-pose-input" type="file" accept=".glb" hidden>
+
+                <div id="pose-wrapper" class="select-wrapper">
+                    <select id="pose-select" aria-label="Selected pose"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+
+                <button id="reset-pose" type="button" title="Reset selected pose" aria-label="Reset selected pose"
+                    hidden>
+                    <span class="icon icon-reset" aria-hidden="true"></span>
+                </button>
+
+                <button id="remove-pose" type="button" title="Remove selected pose" hidden>
+                    <span class="icon icon-remove" aria-hidden="true"></span>
+                    <span>Remove Pose</span>
+                </button>
+
+                <div id="anchor-wrapper" class="select-wrapper" hidden>
+                    <select id="anchor-select" aria-label="Preview anchor"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+
+                <button id="center-anchor" type="button" title="Center view on selected anchor"
+                    aria-label="Center view on selected anchor" hidden>
+                    <span class="icon icon-center" aria-hidden="true"></span>
+                </button>
+
+                <div id="asset-wrapper" class="select-wrapper" hidden>
+                    <select id="asset-select" aria-label="Preview asset"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+            </div>
+
+            <div id="animation-toolbar" class="floating-toolbar animation-toolbar" hidden>
+                <div class="select-wrapper">
+                    <select id="animation-select" aria-label="Current animation"></select>
+                    <span class="icon icon-select" aria-hidden="true"></span>
+                </div>
+
+                <button id="toggle-animation" class="icon-button" type="button" title="Play / Pause"
+                    aria-label="Pause animation">
+                    <span id="animation-icon" class="icon icon-pause"></span>
+                </button>
+            </div>
+        </div>
+
+        <script type="module" src="./views/hands.js"></script>
+    </body>
+
+</html>

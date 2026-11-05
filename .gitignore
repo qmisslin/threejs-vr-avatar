@@ -1,0 +1,14 @@
+# Visual Studio Code
+.vscode/
+
+# macOS
+.DS_Store
+._*
+.AppleDouble/
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+
+# Local specifications
+/specs.md

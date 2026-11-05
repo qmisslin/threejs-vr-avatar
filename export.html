@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1.0">
+        <title>Avatar Export</title>
+        <link rel="stylesheet" href="./style.css">
+    </head>
+
+    <body class="view-body export-view">
+        <main class="export-content">
+            <header class="export-header">
+                <h1>Export Avatar</h1>
+                <p>Review the contents of your avatar before exporting to GLB.</p>
+            </header>
+
+            <div id="export-inventory" class="export-inventory" aria-label="Export contents"></div>
+        </main>
+
+        <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
+
+        <div class="toolbar-row">
+            <div class="floating-toolbar">
+                <button id="export-glb" class="primary" type="button">
+                    <span class="icon icon-download" aria-hidden="true"></span>
+                    <span>Export GLB</span>
+                </button>
+            </div>
+        </div>
+
+        <script type="module" src="./views/export.js"></script>
+    </body>
+
+</html>
