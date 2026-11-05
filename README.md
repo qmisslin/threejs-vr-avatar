@@ -14,6 +14,23 @@ Try Avatar Creator directly in your browser:
 
 The editor runs entirely in your browser using Three.js and IndexedDB. No installation or backend is required.
 
+## Standalone Runtime Example
+
+Explore a working example of the standalone Avatar Creator runtime, demonstrating how to load, display, and control an exported GLB avatar using Three.js.
+
+- **[Live Demo](https://qmisslin.github.io/threejs-vr-avatar/dist/)** — Try the standalone avatar viewer directly in your browser.
+- **[Source Code](./dist/)** — Explore the example implementation.
+
+The example demonstrates:
+
+- Loading an exported Avatar Creator GLB.
+- Rendering the avatar with Three.js and OrbitControls.
+- Controlling avatar height and pelvis position.
+- Playing animations and applying hand poses.
+- Accessing embedded accessories and avatar resources.
+
+The example uses the standalone `avatar.js` runtime without requiring the Avatar Creator editor.
+
 ## Features
 
 ### Avatar editing
