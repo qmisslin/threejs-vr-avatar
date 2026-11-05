@@ -12,3 +12,7 @@
 
 # Local specifications
 /specs.md
+
+# Excluded FBX avatars
+/fbx/avatar2.fbx
+/fbx/doctor.fbx
